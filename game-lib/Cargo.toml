@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arrayvec = { version = "0.7.6", default-features = false }
+bytemuck = "1.22.0"
 engine = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
+glam = { version = "0.30.1", default-features = false, features = ["libm", "bytemuck"] }
+libm = "0.2.11"
 platform = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
+seahash = "4.1.0"

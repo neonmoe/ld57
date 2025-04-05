@@ -22,9 +22,9 @@ checksum = "b6b1fc10dbac614ebc03540c9dbd60e83887fda27794998c6528f1782047d540"
 
 [[package]]
 name = "cc"
-version = "1.2.17"
+version = "1.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fcb57c740ae1daf453ae85f16e37396f672b039e00d9d866e07ddb24e328e3a"
+checksum = "525046617d8376e3db1deffb079e91cef90a89fc3ca5c185bbf8c9ecdd15cd5c"
 dependencies = [
  "shlex",
 ]
@@ -37,9 +37,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "cmake"
-version = "0.1.52"
+version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c682c223677e0e5b6b7f63a64b9351844c3f1b1678a68b7ee617e30fb082620e"
+checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
 dependencies = [
  "cc",
 ]
@@ -53,7 +53,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 [[package]]
 name = "engine"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#9f8af769eff3f83546765cb77551fa014d8ac474"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -76,8 +76,23 @@ dependencies = [
 name = "game-lib"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
+ "bytemuck",
  "engine",
+ "glam",
+ "libm",
  "platform",
+ "seahash",
+]
+
+[[package]]
+name = "glam"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf3aa70d918d2b234126ff4f850f628f172542bf0603ded26b8ee36e5e22d5f9"
+dependencies = [
+ "bytemuck",
+ "libm",
 ]
 
 [[package]]
@@ -93,9 +108,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
+name = "libm"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
+
+[[package]]
 name = "platform"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#9f8af769eff3f83546765cb77551fa014d8ac474"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -105,7 +126,7 @@ dependencies = [
 [[package]]
 name = "platform-sdl2"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#9f8af769eff3f83546765cb77551fa014d8ac474"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
 dependencies = [
  "platform",
  "sdl2",
@@ -141,6 +162,12 @@ dependencies = [
  "libc",
  "version-compare",
 ]
+
+[[package]]
+name = "seahash"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "shlex"
