@@ -45,7 +45,7 @@ jobs:
         name: game-web
         path: dist/
   build-linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
     - name: Install SDL2
@@ -89,6 +89,7 @@ jobs:
     - name: Install cargo-bundle
       run: cargo install cargo-bundle
     - name: Create artifact
+      # REMINDER: In addition to renaming the executable, also rename the app and [package.metadata.bundle]
       run: |
         cargo bundle --release --features=sdl-bundled
         strip target/release/bundle/osx/Game.app/Contents/MacOS/game-bin

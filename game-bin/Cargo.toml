@@ -14,3 +14,8 @@ sdl2 = "*" # just so we can pass features, let platform-sdl2 pick the version
 default = []
 sdl-bundled = ["sdl2/bundled"]
 sdl-static-link = ["sdl2/static-link"]
+
+[package.metadata.bundle]
+name = "Game"
+identifier = "moe.neon.ld57"
+osx_minimum_system_version = "10.12"
