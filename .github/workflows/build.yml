@@ -85,7 +85,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --release --features=sdl-bundle,sdl-static-link
+      run: cargo build --release --features=sdl-bundled,sdl-static-link
     - name: Install cargo-bundle
       run: cargo install cargo-bundle
     - name: Create artifact
