@@ -5,7 +5,7 @@ mod camera;
 mod game_object;
 mod tilemap;
 
-use brain::Brain;
+use brain::{Brain, HaulDescription, NotificationSet};
 use bytemuck::Zeroable;
 use camera::Camera;
 use engine::{
@@ -20,6 +20,8 @@ use glam::Vec2;
 use platform::{Instant, Platform};
 use tilemap::Tilemap;
 
+const MAX_CHARACTERS: usize = 10;
+
 #[repr(u8)]
 enum DrawLayer {
     Tilemap,
@@ -31,16 +33,17 @@ pub struct Game {
     camera: Camera,
     scene: Scene<'static>,
     brains: FixedVec<'static, Brain>,
+    haul_notifications: NotificationSet<'static, HaulDescription>,
     placeholder_sprite: SpriteHandle,
 }
 
 impl Game {
     pub fn new(arena: &'static LinearAllocator, engine: &Engine) -> Game {
-        const MAX_CHARACTERS: usize = 10;
-
         let mut brains = FixedVec::new(arena, MAX_CHARACTERS).unwrap();
         brains.push(Brain::new()).unwrap();
         brains[0].job = JobStationVariant::ENERGY_GENERATOR;
+
+        let haul_notifications = NotificationSet::new(arena, 128).unwrap();
 
         let mut scene = Scene::builder()
             .with_game_object_type::<Character>(MAX_CHARACTERS)
@@ -85,17 +88,38 @@ impl Game {
             },
             scene,
             brains,
+            haul_notifications,
             placeholder_sprite: engine.resource_db.find_sprite("Placeholder").unwrap(),
         }
     }
 
-    pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, _timestamp: Instant) {
+    pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, timestamp: Instant) {
         let (draw_width, draw_height) = platform.draw_area();
         let draw_scale = platform.draw_scale_factor();
         let aspect_ratio = draw_width / draw_height;
         self.camera.output_size = Vec2::new(draw_width, draw_height);
         self.camera.size = Vec2::new(aspect_ratio * 16., 16.);
         self.camera.position = self.camera.size / 2.;
+
+        if let Some(mut brains_to_think) = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS) {
+            self.scene.run_system(define_system!(
+                |_, characters: &[CharacterStatus], positions: &[TilePosition]| {
+                    for (character, pos) in characters.iter().zip(positions) {
+                        let _ = brains_to_think.push((character.brain_index, *pos));
+                    }
+                }
+            ));
+
+            for (brain_idx, pos) in &mut *brains_to_think {
+                self.brains[*brain_idx].update_goals(
+                    *brain_idx,
+                    *pos,
+                    timestamp,
+                    &mut self.scene,
+                    &mut self.haul_notifications,
+                );
+            }
+        }
 
         let workers: FixedVec<'_, (JobStationVariant, TilePosition)> = FixedVec::empty();
         // TODO: add an entry for each character whose brain is currently in Goal::Work

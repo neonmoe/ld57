@@ -105,6 +105,16 @@ impl Stockpile {
         None
     }
 
+    pub fn get_resources(&self, variant: ResourceVariant) -> Option<u8> {
+        let len = self.variant_count as usize;
+        for (variant_, amount) in self.variants[..len].iter().zip(&self.amounts[..len]) {
+            if variant == *variant_ {
+                return Some(*amount);
+            }
+        }
+        None
+    }
+
     pub fn insert_resource(&mut self, variant: ResourceVariant, amount: u8) {
         let len = self.variant_count as usize;
         for (variant_, amount_) in self.variants[..len].iter().zip(&mut self.amounts[..len]) {
@@ -150,7 +160,6 @@ pub struct JobStationDetails {
 #[repr(C)]
 pub struct JobStationVariant(u8);
 impl JobStationVariant {
-    pub const NONE: JobStationVariant = JobStationVariant(0);
     pub const ENERGY_GENERATOR: JobStationVariant = JobStationVariant(1);
 }
 
@@ -158,7 +167,6 @@ impl JobStationVariant {
 #[repr(C)]
 pub struct ResourceVariant(u8);
 impl ResourceVariant {
-    pub const NONE: ResourceVariant = ResourceVariant(0);
     pub const MAGMA: ResourceVariant = ResourceVariant(1);
     pub const ENERGY: ResourceVariant = ResourceVariant(2);
 }
