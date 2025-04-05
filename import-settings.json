@@ -10,6 +10,11 @@
       "command": "add_sprite",
       "name": "Wall",
       "file": "resources/sprites/wall.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Placeholder",
+      "file": "resources/sprites/placeholder.png"
     }
   ]
 }
