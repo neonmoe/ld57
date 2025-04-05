@@ -1,0 +1,8 @@
+[package]
+name = "game-lib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+engine = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
+platform = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
