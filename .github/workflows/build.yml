@@ -70,7 +70,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --release --features "sdl-bundled,sdl-static-link"
+      run: cargo build --release --features=sdl-bundled,sdl-static-link
     - name: Create artifact
       run: |
         mkdir dist
@@ -85,15 +85,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --release --features=sdl-bundled
+      run: cargo build --release --features=sdl-bundle,sdl-static-link
     - name: Install cargo-bundle
       run: cargo install cargo-bundle
     - name: Create artifact
       # REMINDER: In addition to renaming the executable, also rename the app and [package.metadata.bundle]
       run: |
-        cargo bundle --release --features=sdl-bundled
+        cargo bundle --release --features=sdl-bundled,sdl-static-link
         strip target/release/bundle/osx/Game.app/Contents/MacOS/game-bin
-        mv target/release/libSDL2-2.0.dylib target/release/bundle/osx/Game.app/Contents/MacOS/
         mkdir dist
         mv target/release/bundle/osx/Game.app dist/Game.app
     - name: Upload artifact
