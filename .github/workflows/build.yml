@@ -69,14 +69,12 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install SDL2
+    - name: Install vcpkg and vcpkg deps
       run: |
-        vcpkg.exe install sdl2:x64-windows
-        echo "PATH=$PATH;C:\vcpkg\installed\x64-windows\bin" >> $GITHUB_ENV
-        echo "INCLUDE=$INCLUDE;C:\vcpkg\installed\x64-windows\include" >> $GITHUB_ENV
-        echo "LIB=$LIB;C:\vcpkg\installed\x64-windows\lib" >> $GITHUB_ENV
+        cargo install cargo-vcpkg
+        cargo vcpkg build
     - name: Build
-      run: cargo build --release --features=sdl-static-link
+      run: cargo build --release --features=sdl-static-link,sdl-use-vcpkg
     - name: Create artifact
       run: |
         mkdir dist

@@ -14,8 +14,18 @@ sdl2 = "*" # just so we can pass features, let platform-sdl2 pick the version
 default = []
 sdl-bundled = ["sdl2/bundled"]
 sdl-static-link = ["sdl2/static-link"]
+sdl-use-vcpkg = ["sdl2/use-vcpkg"]
 
 [package.metadata.bundle]
 name = "Game"
 identifier = "moe.neon.ld57"
 osx_minimum_system_version = "10.12"
+
+# vcpkg configs for building on windows. The windows runner appears to
+# intermittently fail to build SDL when using sdl2/bundled, so here we are.
+[package.metadata.vcpkg]
+dependencies = ["sdl2"]
+git = "https://github.com/microsoft/vcpkg"
+rev = "2025.03.19"
+[package.metadata.vcpkg.target]
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
