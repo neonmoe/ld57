@@ -70,13 +70,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Install SDL2
-      run: vcpkg.exe install sdl2:x64-windows
-    - name: Build
       run: |
-        Add-Content $env:GITHUB_PATH "C:\vcpkg\installed\x64-windows\bin"
-        Add-Content $env:INCLUDE "C:\vcpkg\installed\x64-windows\include"
-        Add-Content $env:LIB "C:\vcpkg\installed\x64-windows\lib"
-        cargo build --release --features=sdl-static-link
+        vcpkg.exe install sdl2:x64-windows
+        echo "PATH=$PATH;C:\vcpkg\installed\x64-windows\bin" >> $GITHUB_ENV
+        echo "INCLUDE=$INCLUDE;C:\vcpkg\installed\x64-windows\include" >> $GITHUB_ENV
+        echo "LIB=$LIB;C:\vcpkg\installed\x64-windows\lib" >> $GITHUB_ENV
+    - name: Build
+      run: cargo build --release --features=sdl-static-link
     - name: Create artifact
       run: |
         mkdir dist
