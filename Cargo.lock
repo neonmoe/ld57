@@ -25,9 +25,9 @@ dependencies = [
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.9.2"
+version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ff22c2722516255d1823ce3cc4bc0b154dbc9364be5c905d6baa6eccbbc8774"
+checksum = "7ecc273b49b3205b83d648f0690daa588925572cc5063745bfe547fe7ec8e1a1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -67,7 +67,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 [[package]]
 name = "engine"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#960b8e95f78b5d02c585bfc8480d00e9cffeaa71"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -130,7 +130,7 @@ checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 [[package]]
 name = "platform"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#960b8e95f78b5d02c585bfc8480d00e9cffeaa71"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -140,7 +140,7 @@ dependencies = [
 [[package]]
 name = "platform-sdl2"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#395965514e0f3f415fdc77d140aa3173abb95485"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#960b8e95f78b5d02c585bfc8480d00e9cffeaa71"
 dependencies = [
  "platform",
  "sdl2",
