@@ -1,0 +1,102 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install emscripten
+      run: |
+        git clone --depth 1 https://github.com/emscripten-core/emsdk
+        cd emsdk
+        ./emsdk install latest
+        ./emsdk activate latest
+    - name: Install the Rust wasm target
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-emscripten
+    - name: Build
+      run: |
+        cd emsdk
+        ./emsdk activate latest
+        source ./emsdk_env.sh
+        cd ..
+        cargo build --release --target wasm32-unknown-emscripten
+      env:
+        RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000 -C link-arg=-sUSE_SDL=2
+    - name: Create artifact
+      run: |
+        mkdir dist
+        mv target/wasm32-unknown-emscripten/release/game-bin.js dist
+        mv target/wasm32-unknown-emscripten/release/game_bin.wasm dist
+        mv resources/web/index.html dist
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: game-web
+        path: dist/
+  build-linux:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install SDL2
+      run: |
+        sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
+        sudo apt-get update -y -qq
+        sudo apt-get install libsdl2-dev
+    - name: Build
+      run: cargo build --release
+    - name: Create artifact
+      run: |
+        strip target/release/game-bin
+        mkdir dist
+        mv target/release/game-bin dist
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: game-linux
+        path: dist/
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release --features "sdl-bundled,sdl-static-link"
+    - name: Create artifact
+      run: |
+        mkdir dist
+        mv target/release/game-bin.exe dist/game-bin.exe
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: game-windows
+        path: dist/
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release --features=sdl-bundled
+    - name: Install cargo-bundle
+      run: cargo install cargo-bundle
+    - name: Create artifact
+      run: |
+        cargo bundle --release --features=sdl-bundled
+        strip target/release/bundle/osx/Game.app/Contents/MacOS/game-bin
+        mv target/release/libSDL2-2.0.dylib target/release/bundle/osx/Game.app/Contents/MacOS/
+        mkdir dist
+        mv target/release/bundle/osx/Game.app dist/Game.app
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: game-macos
+        path: dist/
