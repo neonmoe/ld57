@@ -60,6 +60,7 @@ jobs:
         strip target/release/game-bin
         mkdir dist
         mv target/release/game-bin dist
+        mv resources.db dist
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
@@ -79,28 +80,9 @@ jobs:
       run: |
         mkdir dist
         mv target/release/game-bin.exe dist/game-bin.exe
+        mv resources.db dist/resources.db
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: game-windows
-        path: dist/
-  build-macos:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --release --features=sdl-bundled,sdl-static-link
-    - name: Install cargo-bundle
-      run: cargo install cargo-bundle
-    - name: Create artifact
-      # REMINDER: In addition to renaming the executable, also rename the app and [package.metadata.bundle]
-      run: |
-        cargo bundle --release --features=sdl-bundled,sdl-static-link
-        strip target/release/bundle/osx/Game.app/Contents/MacOS/game-bin
-        mkdir dist
-        mv target/release/bundle/osx/Game.app dist/Game.app
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: game-macos
         path: dist/
