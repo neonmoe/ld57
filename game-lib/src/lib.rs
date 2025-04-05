@@ -1,14 +1,16 @@
 #![no_std]
 
+mod brain;
 mod camera;
 mod game_object;
 mod tilemap;
 
+use brain::Brain;
 use bytemuck::Zeroable;
 use camera::Camera;
 use engine::{
-    Engine, allocators::LinearAllocator, define_system, game_objects::Scene, geom::Rect,
-    renderer::DrawQueue, resources::sprite::SpriteHandle,
+    Engine, allocators::LinearAllocator, collections::FixedVec, define_system, game_objects::Scene,
+    geom::Rect, renderer::DrawQueue, resources::sprite::SpriteHandle,
 };
 use game_object::{
     Character, CharacterStatus, JobStation, JobStationStatus, JobStationVariant, Resource,
@@ -28,20 +30,27 @@ pub struct Game {
     tilemap: Tilemap<'static>,
     camera: Camera,
     scene: Scene<'static>,
+    brains: FixedVec<'static, Brain>,
     placeholder_sprite: SpriteHandle,
 }
 
 impl Game {
     pub fn new(arena: &'static LinearAllocator, engine: &Engine) -> Game {
+        const MAX_CHARACTERS: usize = 10;
+
+        let mut brains = FixedVec::new(arena, MAX_CHARACTERS).unwrap();
+        brains.push(Brain::new()).unwrap();
+        brains[0].job = JobStationVariant::ENERGY_GENERATOR;
+
         let mut scene = Scene::builder()
-            .with_game_object_type::<Character>(10)
+            .with_game_object_type::<Character>(MAX_CHARACTERS)
             .with_game_object_type::<JobStation>(100)
             .with_game_object_type::<Resource>(1000)
             .build(arena, &engine.frame_arena)
             .unwrap();
 
         let char_spawned = scene.spawn(Character {
-            status: CharacterStatus { brain_index: 0 }, // TODO: implement brains
+            status: CharacterStatus { brain_index: 0 },
             position: TilePosition::new(5, 1),
             held: Stockpile::zeroed(),
         });
@@ -75,18 +84,54 @@ impl Game {
                 output_size: Vec2::ZERO,
             },
             scene,
+            brains,
             placeholder_sprite: engine.resource_db.find_sprite("Placeholder").unwrap(),
         }
     }
 
     pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, _timestamp: Instant) {
         let (draw_width, draw_height) = platform.draw_area();
+        let draw_scale = platform.draw_scale_factor();
         let aspect_ratio = draw_width / draw_height;
         self.camera.output_size = Vec2::new(draw_width, draw_height);
         self.camera.size = Vec2::new(aspect_ratio * 16., 16.);
         self.camera.position = self.camera.size / 2.;
 
-        let draw_scale = platform.draw_scale_factor();
+        let workers: FixedVec<'_, (JobStationVariant, TilePosition)> = FixedVec::empty();
+        // TODO: add an entry for each character whose brain is currently in Goal::Work
+
+        // Produce at all job stations with a worker next to it
+        self.scene.run_system(define_system!(
+            |_,
+             jobs: &mut [JobStationStatus],
+             stockpiles: &mut [Stockpile],
+             positions: &[TilePosition]| {
+                for ((job, stockpile), pos) in jobs.iter_mut().zip(stockpiles).zip(positions) {
+                    for (worker_job, worker_position) in workers.iter() {
+                        if job.variant == *worker_job
+                            && worker_position.manhattan_distance(**pos) < 2
+                        {
+                            if let Some(details) = job.details() {
+                                let resources =
+                                    stockpile.get_resources_mut(details.resource_variant);
+                                let current_amount = resources.map(|a| *a).unwrap_or(0);
+                                if current_amount >= details.resource_amount {
+                                    job.work_invested += 1;
+                                    if job.work_invested >= details.work_amount {
+                                        job.work_invested -= details.work_amount;
+                                        stockpile.insert_resource(
+                                            details.output_variant,
+                                            details.output_amount,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ));
+
         let mut draw_queue = DrawQueue::new(&engine.frame_arena, 10_000, draw_scale).unwrap();
 
         self.tilemap.render(
@@ -97,6 +142,7 @@ impl Game {
             &engine.frame_arena,
         );
 
+        // Draw placeholders for every game object with a TilePosition
         let placeholder_sprite = engine.resource_db.get_sprite(self.placeholder_sprite);
         let scale = self.camera.output_size / self.camera.size;
         self.scene

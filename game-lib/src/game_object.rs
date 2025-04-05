@@ -66,7 +66,7 @@ impl JobStationStatus {
             JobStationVariant::ENERGY_GENERATOR => Some(JobStationDetails {
                 resource_variant: ResourceVariant::MAGMA,
                 resource_amount: 1,
-                work_ms_amount: 1_000,
+                work_amount: 10,
                 output_variant: ResourceVariant::ENERGY,
                 output_amount: 1,
             }),
@@ -94,6 +94,31 @@ impl Stockpile {
             self
         }
     }
+
+    pub fn get_resources_mut(&mut self, variant: ResourceVariant) -> Option<&mut u8> {
+        let len = self.variant_count as usize;
+        for (variant_, amount) in self.variants[..len].iter().zip(&mut self.amounts[..len]) {
+            if variant == *variant_ {
+                return Some(amount);
+            }
+        }
+        None
+    }
+
+    pub fn insert_resource(&mut self, variant: ResourceVariant, amount: u8) {
+        let len = self.variant_count as usize;
+        for (variant_, amount_) in self.variants[..len].iter().zip(&mut self.amounts[..len]) {
+            if variant == *variant_ {
+                *amount_ += amount;
+                return;
+            }
+        }
+        if len < self.variants.len() {
+            self.variants[len] = variant;
+            self.amounts[len] = amount;
+            self.variant_count += 1;
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Zeroable, Pod)]
@@ -116,7 +141,7 @@ impl Deref for TilePosition {
 pub struct JobStationDetails {
     pub resource_variant: ResourceVariant,
     pub resource_amount: u8,
-    pub work_ms_amount: u16,
+    pub work_amount: u8,
     pub output_variant: ResourceVariant,
     pub output_amount: u8,
 }
