@@ -1,0 +1,15 @@
+{
+  "settings_file_version": "v1",
+  "imports": [
+    {
+      "command": "add_sprite",
+      "name": "Seafloor",
+      "file": "resources/sprites/seafloor.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Wall",
+      "file": "resources/sprites/wall.png"
+    }
+  ]
+}

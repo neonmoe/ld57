@@ -4,11 +4,20 @@ use platform_sdl2::Sdl2Platform;
 
 fn main() {
     let platform = Sdl2Platform::new("game"); // TODO: come up with a name
-    let mut engine = {
-        static ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
-        Engine::new(&platform, ARENA, EngineLimits::DEFAULT)
-    };
-    let mut game = Game::new();
+
+    static ARENA: &LinearAllocator = static_allocator!(8 * 1024 * 1024);
+    let mut engine = Engine::new(
+        &platform,
+        ARENA,
+        EngineLimits {
+            frame_arena_size: 2 * 1024 * 1024,
+            resource_database_loaded_chunks_count: 32,
+            resource_database_buffer_size: 1024 * 1024,
+            ..EngineLimits::DEFAULT
+        },
+    );
+    let mut game = Game::new(ARENA, &engine);
+
     platform.run_game_loop(&mut engine, |timestamp, platform, engine| {
         game.iterate(engine, platform, timestamp);
     });
