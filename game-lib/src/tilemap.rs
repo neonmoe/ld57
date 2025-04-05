@@ -1,7 +1,4 @@
-use core::{
-    f32::consts::{PI, SQRT_2},
-    fmt::Write,
-};
+use core::{f32::consts::PI, fmt::Write};
 
 use arrayvec::ArrayString;
 use engine::{
@@ -37,7 +34,8 @@ impl Tilemap<'_> {
         let mut tiles = FixedVec::new(arena, width * height).unwrap();
         for y in 0..height {
             for x in 0..width {
-                if perlin_noise(Vec2::new(x as f32, y as f32) / 8.0) >= 0.0 {
+                let noise = perlin_noise(Vec2::new(x as f32, y as f32) / 4.0);
+                if noise > -0.2 {
                     let _ = tiles.push(Tile::Seafloor);
                 } else {
                     let _ = tiles.push(Tile::Wall);
@@ -115,14 +113,24 @@ fn perlin_noise(sample_point: Vec2) -> f32 {
         Vec2::new(floorf(sample_point.x), ceilf(sample_point.y)),
         Vec2::new(ceilf(sample_point.x), floorf(sample_point.y)),
     ];
-    let mut sum = 0.0;
-    for corner in corners {
+    let mut values = [0.0; 4];
+    for (i, corner) in corners.into_iter().enumerate() {
         let offset = sample_point - corner;
-        let hash = seahash::hash(bytemuck::bytes_of(&corner));
-        let angle = (hash as f32 / u64::MAX as f32) * 2. * PI;
+        let hash = seahash::hash(bytemuck::bytes_of(&corner.as_ivec2())) & 0xFF;
+        let angle = (hash as f32 / 0xFF as f32) * 2. * PI;
         let gradient = Vec2::new(cosf(angle), sinf(angle));
         let value = gradient.dot(offset);
-        sum += value * offset.length();
+        values[i] = value;
     }
-    sum / (2. * SQRT_2)
+    let xt = (sample_point.x - floorf(sample_point.x)).abs();
+    let yt = (sample_point.y - floorf(sample_point.y)).abs();
+    let a = values[0] + smoothstep(xt) * (values[1] - values[0]);
+    let b = values[2] + smoothstep(xt) * (values[3] - values[2]);
+    a + smoothstep(yt) * (b - a)
+}
+
+fn smoothstep(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    let x2 = x * x;
+    3. * x2 - 2. * x2 * x
 }
