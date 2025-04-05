@@ -69,8 +69,10 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install SDL2
+      run: vcpkg.exe install sdl2:x64-windows
     - name: Build
-      run: cargo build --release --features=sdl-bundled,sdl-static-link
+      run: cargo build --release --features=sdl-static-link
     - name: Create artifact
       run: |
         mkdir dist
