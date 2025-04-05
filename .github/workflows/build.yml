@@ -72,7 +72,7 @@ jobs:
     - name: Install vcpkg and vcpkg deps
       run: |
         cargo install cargo-vcpkg
-        cargo vcpkg build
+        cargo vcpkg build --manifest-path=game-bin/Cargo.toml
     - name: Build
       run: cargo build --release --features=sdl-static-link,sdl-use-vcpkg
     - name: Create artifact
