@@ -3,6 +3,7 @@
 mod brain;
 mod camera;
 mod game_object;
+mod pathfinding;
 mod tilemap;
 
 use brain::{Brain, HaulDescription, NotificationSet};
