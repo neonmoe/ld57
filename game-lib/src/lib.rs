@@ -8,8 +8,9 @@ mod notifications;
 mod pathfinding;
 mod tilemap;
 
-use core::time::Duration;
+use core::{fmt::Write, time::Duration};
 
+use arrayvec::{ArrayString, ArrayVec};
 use brain::{Brain, HaulDescription, Occupation};
 use bytemuck::Zeroable;
 use camera::Camera;
@@ -23,6 +24,7 @@ use engine::{
     renderer::DrawQueue,
     resources::{
         ResourceDatabase, ResourceLoader,
+        audio_clip::AudioClipHandle,
         sprite::{SpriteAsset, SpriteHandle},
     },
 };
@@ -52,6 +54,12 @@ enum DrawLayer {
     CarriedStockpiles,
 }
 
+#[derive(Clone, Copy)]
+#[repr(usize)]
+enum AudioChannel {
+    Music,
+}
+
 pub struct Game {
     tilemap: Tilemap<'static>,
     camera: Camera,
@@ -61,6 +69,8 @@ pub struct Game {
     current_tick: u64,
     next_tick_time: Instant,
     placeholder_sprite: SpriteHandle,
+    music_clips: ArrayVec<AudioClipHandle, 4>,
+    last_music_clip_start: Instant,
 }
 
 impl Game {
@@ -134,6 +144,18 @@ impl Game {
             current_tick: 0,
             next_tick_time: platform.now(),
             placeholder_sprite: engine.resource_db.find_sprite("Placeholder").unwrap(),
+            music_clips: {
+                let mut music_clips = ArrayVec::new();
+                for i in 0..music_clips.capacity() {
+                    let mut name = ArrayString::<27>::new();
+                    let _ = write!(&mut name, "Soundtrack{i:02}");
+                    if let Some(clip) = engine.resource_db.find_audio_clip(&name) {
+                        music_clips.push(clip);
+                    }
+                }
+                music_clips
+            },
+            last_music_clip_start: platform.now() - Duration::from_secs(10000),
         }
     }
 
@@ -285,6 +307,24 @@ impl Game {
                 debug_assert!(false, "not enough memory to collect the garbage stockpiles");
             }
             temp_arena.reset();
+        }
+
+        // Music:
+        if let Some(duration) = timestamp.duration_since(self.last_music_clip_start) {
+            if duration > Duration::from_secs(45) {
+                let time_ms = timestamp
+                    .duration_since(Instant::reference())
+                    .unwrap_or_else(|| Instant::reference().duration_since(timestamp).unwrap())
+                    .as_micros();
+                let hash = seahash::hash(&time_ms.to_le_bytes()) as usize;
+                self.last_music_clip_start = timestamp;
+                engine.audio_mixer.play_clip(
+                    AudioChannel::Music as usize,
+                    self.music_clips[hash % self.music_clips.len()],
+                    false,
+                    &engine.resource_db,
+                );
+            }
         }
 
         // Render:

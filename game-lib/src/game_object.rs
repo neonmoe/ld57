@@ -67,7 +67,6 @@ pub struct CharacterStatus {
 #[repr(C)]
 pub struct Collider(u8);
 impl Collider {
-    pub const WALKABLE: Collider = Collider(0);
     pub const NOT_WALKABLE: Collider = Collider(1);
     pub const fn is_not_walkable(self) -> bool {
         self.0 != 0

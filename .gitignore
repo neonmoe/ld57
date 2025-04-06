@@ -2,3 +2,5 @@ PLAN.md
 /target
 /.vscode
 /dist
+auto-backups
+/resources/**/recordings
