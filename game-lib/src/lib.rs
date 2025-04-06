@@ -23,9 +23,7 @@ use engine::{
     geom::Rect,
     renderer::DrawQueue,
     resources::{
-        ResourceDatabase, ResourceLoader,
-        audio_clip::AudioClipHandle,
-        sprite::{SpriteAsset, SpriteHandle},
+        ResourceDatabase, ResourceLoader, audio_clip::AudioClipHandle, sprite::SpriteHandle,
     },
 };
 use game_object::{
@@ -49,7 +47,8 @@ pub const MILLIS_PER_TICK: u64 = 100;
 enum DrawLayer {
     Tilemap,
     LooseStockpiles,
-    Characters,
+    CharacterSuits,
+    CharacterHelmets,
     JobStationStockpiles,
     CarriedStockpiles,
 }
@@ -60,6 +59,17 @@ enum AudioChannel {
     Music,
 }
 
+#[derive(Clone, Copy, Debug)]
+#[repr(usize)]
+enum Sprite {
+    Placeholder,
+    Helmet,
+    Suit,
+    Energy,
+    Magma,
+    _Count,
+}
+
 pub struct Game {
     tilemap: Tilemap<'static>,
     camera: Camera,
@@ -68,7 +78,7 @@ pub struct Game {
     haul_notifications: NotificationSet<'static, HaulDescription>,
     current_tick: u64,
     next_tick_time: Instant,
-    placeholder_sprite: SpriteHandle,
+    sprites: ArrayVec<SpriteHandle, { Sprite::_Count as usize }>,
     music_clips: ArrayVec<AudioClipHandle, 4>,
     last_music_clip_start: Instant,
 }
@@ -121,10 +131,7 @@ impl Game {
             for x in 1..4 {
                 let res_spawned = scene.spawn(Resource {
                     position: TilePosition::new(x, y),
-                    stockpile: Stockpile::zeroed()
-                        .with_resource(ResourceVariant::MAGMA, 6, false)
-                        .with_resource(ResourceVariant::TEST_A, 6, false)
-                        .with_resource(ResourceVariant::TEST_B, 6, false),
+                    stockpile: Stockpile::zeroed().with_resource(ResourceVariant::MAGMA, 2, false),
                     stockpile_reliant: StockpileReliantTag {},
                 });
                 debug_assert!(res_spawned.is_ok());
@@ -143,7 +150,18 @@ impl Game {
             haul_notifications,
             current_tick: 0,
             next_tick_time: platform.now(),
-            placeholder_sprite: engine.resource_db.find_sprite("Placeholder").unwrap(),
+            sprites: {
+                use Sprite::*;
+                let sprite_enums: [Sprite; Sprite::_Count as usize] =
+                    [Placeholder, Helmet, Suit, Energy, Magma];
+                let mut sprites = ArrayVec::new();
+                for sprite in sprite_enums {
+                    let mut name = ArrayString::<27>::new();
+                    let _ = write!(&mut name, "{sprite:?}");
+                    sprites.push(engine.resource_db.find_sprite(&name).unwrap());
+                }
+                sprites
+            },
             music_clips: {
                 let mut music_clips = ArrayVec::new();
                 for i in 0..music_clips.capacity() {
@@ -346,8 +364,6 @@ impl Game {
             &engine.frame_arena,
         );
 
-        // Draw placeholders
-        let placeholder_sprite = engine.resource_db.get_sprite(self.placeholder_sprite);
         let scale = self.camera.output_size / self.camera.size;
 
         // Non-specific stockpiles
@@ -362,7 +378,7 @@ impl Game {
                         &mut engine.resource_loader,
                         &mut draw_queue,
                         DrawLayer::LooseStockpiles,
-                        placeholder_sprite,
+                        &self.sprites,
                         scale,
                         tile_pos,
                         stockpile,
@@ -383,7 +399,7 @@ impl Game {
                         &mut engine.resource_loader,
                         &mut draw_queue,
                         DrawLayer::CarriedStockpiles,
-                        placeholder_sprite,
+                        &self.sprites,
                         scale,
                         tile_pos,
                         stockpile,
@@ -404,7 +420,7 @@ impl Game {
                         &mut engine.resource_loader,
                         &mut draw_queue,
                         DrawLayer::JobStationStockpiles,
-                        placeholder_sprite,
+                        &self.sprites,
                         scale,
                         tile_pos,
                         stockpile,
@@ -413,23 +429,46 @@ impl Game {
             }
         ));
 
+        // Characters
+        let helmet_sprite = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::Helmet as usize]);
+        let suit_sprite = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::Suit as usize]);
         self.scene.run_system(define_system!(
             |_, tile_positions: &[TilePosition], _characters: &[CharacterStatus]| {
                 for tile_pos in tile_positions {
-                    let dst = Rect::xywh(
-                        tile_pos.x as f32 * scale.x,
-                        tile_pos.y as f32 * scale.y,
-                        scale.x,
-                        scale.y,
+                    let helmet = (
+                        DrawLayer::CharacterHelmets,
+                        helmet_sprite,
+                        Rect::xywh(
+                            (tile_pos.x as f32 + 0.5 / 2.) * scale.x,
+                            (tile_pos.y as f32 - 0.2 / 3.) * scale.y,
+                            scale.x * 1. / 2.,
+                            scale.y * 1. / 2.,
+                        ),
                     );
-                    let draw_success = placeholder_sprite.draw(
-                        dst,
-                        DrawLayer::Characters as u8,
-                        &mut draw_queue,
-                        &engine.resource_db,
-                        &mut engine.resource_loader,
+                    let suit = (
+                        DrawLayer::CharacterSuits,
+                        suit_sprite,
+                        Rect::xywh(
+                            (tile_pos.x as f32 + 0. / 3.) * scale.x,
+                            (tile_pos.y as f32 + 0. / 3.) * scale.y,
+                            scale.x * 3. / 3.,
+                            scale.y * 3. / 3.,
+                        ),
                     );
-                    debug_assert!(draw_success);
+                    for (layer, sprite, dst) in [helmet, suit] {
+                        let draw_success = sprite.draw(
+                            dst,
+                            layer as u8,
+                            &mut draw_queue,
+                            &engine.resource_db,
+                            &mut engine.resource_loader,
+                        );
+                        debug_assert!(draw_success);
+                    }
                 }
             }
         ));
@@ -444,34 +483,38 @@ fn draw_stockpile(
     resource_loader: &mut ResourceLoader,
     draw_queue: &mut DrawQueue,
     layer: DrawLayer,
-    placeholder_sprite: &SpriteAsset,
+    sprites: &[SpriteHandle],
     scale: Vec2,
     tile_pos: &TilePosition,
     stockpile: &Stockpile,
 ) {
-    for i in 0..stockpile.variant_count {
+    for i in 0..stockpile.variant_count as usize {
         let stockpile_pos = [
             Vec2::new(0.3, 0.75),
             Vec2::new(0.6, 0.5),
             Vec2::new(0.2, 0.25),
-        ][i as usize];
-        for j in 0..stockpile.amounts[i as usize].min(5) {
+        ][i];
+        for j in 0..stockpile.amounts[i].min(5) as usize {
             let individual_offset = [
                 Vec2::new(-0.1, -0.07),
                 Vec2::new(0.1, 0.02),
                 Vec2::new(0.0, -0.08),
                 Vec2::new(-0.05, 0.02),
                 Vec2::new(0.05, -0.03),
-            ][j as usize];
+            ][j];
             let off = stockpile_pos + individual_offset;
             let dst = Rect::xywh(
                 (tile_pos.x as f32 + off.x) * scale.x,
                 (tile_pos.y as f32 + off.y) * scale.y,
-                scale.x / 5.,
-                scale.y / 5.,
+                scale.x / 4.,
+                scale.y / 4.,
             );
+            let sprite = stockpile.variants[i]
+                .sprite()
+                .unwrap_or(Sprite::Placeholder);
+            let sprite = resources.get_sprite(sprites[sprite as usize]);
             let draw_success =
-                placeholder_sprite.draw(dst, layer as u8, draw_queue, resources, resource_loader);
+                sprite.draw(dst, layer as u8, draw_queue, resources, resource_loader);
             debug_assert!(draw_success);
         }
     }

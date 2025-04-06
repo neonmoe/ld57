@@ -7,6 +7,8 @@ use bytemuck::{Pod, Zeroable};
 use engine::impl_game_object;
 use glam::I16Vec2;
 
+use crate::Sprite;
+
 // Game objects
 
 #[derive(Debug, Zeroable)]
@@ -285,6 +287,14 @@ pub struct ResourceVariant(u8);
 define_consts_with_nice_debug!([ResourceVariant] {
     MAGMA: 1,
     ENERGY: 2,
-    TEST_A: 3,
-    TEST_B: 4,
 });
+
+impl ResourceVariant {
+    pub const fn sprite(self) -> Option<Sprite> {
+        match self {
+            ResourceVariant::MAGMA => Some(Sprite::Magma),
+            ResourceVariant::ENERGY => Some(Sprite::Energy),
+            _ => None,
+        }
+    }
+}

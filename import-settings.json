@@ -39,6 +39,26 @@
       "name": "Soundtrack04",
       "file": "resources/audio/soundtrack-04.flac",
       "track": null
+    },
+    {
+      "command": "add_sprite",
+      "name": "Helmet",
+      "file": "resources/sprites/helmet.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Suit",
+      "file": "resources/sprites/suit.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Energy",
+      "file": "resources/sprites/energy.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Magma",
+      "file": "resources/sprites/magma.png"
     }
   ]
 }
