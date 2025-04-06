@@ -271,4 +271,6 @@ pub struct ResourceVariant(u8);
 define_consts_with_nice_debug!([ResourceVariant] {
     MAGMA: 1,
     ENERGY: 2,
+    TEST_A: 3,
+    TEST_B: 4,
 });

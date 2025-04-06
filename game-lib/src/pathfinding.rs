@@ -194,6 +194,20 @@ impl Path {
         true
     }
 
+    /// Removes the latest step from the end of the path, if it's not empty.
+    pub fn pop_step(&mut self) {
+        if self.is_empty() {
+            return;
+        }
+        self.steps_in_last_quad -= 1;
+        if self.steps_in_last_quad == 0 {
+            self.step_quads.pop();
+            if !self.step_quads.is_empty() {
+                self.steps_in_last_quad = 4;
+            }
+        }
+    }
+
     pub fn reverse(&self) -> Path {
         let mut path = Path::default();
         for step in self.into_iter().rev() {

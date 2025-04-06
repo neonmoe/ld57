@@ -21,7 +21,10 @@ use engine::{
     game_objects::{GameObjectHandle, Scene},
     geom::Rect,
     renderer::DrawQueue,
-    resources::sprite::SpriteHandle,
+    resources::{
+        ResourceDatabase, ResourceLoader,
+        sprite::{SpriteAsset, SpriteHandle},
+    },
 };
 use game_object::{
     Character, CharacterStatus, JobStation, JobStationStatus, JobStationVariant, Resource,
@@ -37,12 +40,17 @@ use tracing::debug;
 const MAX_CHARACTERS: usize = 10;
 
 pub type GameTicks = u64;
-pub const MILLIS_PER_TICK: u64 = 10;
+pub const MILLIS_PER_TICK: u64 = 100;
 
+#[derive(Clone, Copy)]
 #[repr(u8)]
 enum DrawLayer {
     Tilemap,
-    GameObjects,
+    JobStations,
+    LooseStockpiles,
+    Characters,
+    JobStationStockpiles,
+    CarriedStockpiles,
 }
 
 pub struct Game {
@@ -60,7 +68,10 @@ impl Game {
     pub fn new(arena: &'static LinearAllocator, engine: &Engine, platform: &dyn Platform) -> Game {
         let mut brains = FixedVec::new(arena, MAX_CHARACTERS).unwrap();
         brains.push(Brain::new()).unwrap();
+        brains.push(Brain::new()).unwrap();
         brains[0].job = Occupation::Operator(JobStationVariant::ENERGY_GENERATOR);
+        brains[0].wait_ticks = 1000;
+        brains[1].job = Occupation::Hauler;
 
         let haul_notifications = NotificationSet::new(arena, 128).unwrap();
 
@@ -74,6 +85,13 @@ impl Game {
         let char_spawned = scene.spawn(Character {
             status: CharacterStatus { brain_index: 0 },
             position: TilePosition::new(5, 1),
+            held: Stockpile::zeroed(),
+        });
+        debug_assert!(char_spawned.is_ok());
+
+        let char_spawned = scene.spawn(Character {
+            status: CharacterStatus { brain_index: 1 },
+            position: TilePosition::new(6, 4),
             held: Stockpile::zeroed(),
         });
         debug_assert!(char_spawned.is_ok());
@@ -92,7 +110,10 @@ impl Game {
             for x in 1..4 {
                 let res_spawned = scene.spawn(Resource {
                     position: TilePosition::new(x, y),
-                    stockpile: Stockpile::zeroed().with_resource(ResourceVariant::MAGMA, 2, false),
+                    stockpile: Stockpile::zeroed()
+                        .with_resource(ResourceVariant::MAGMA, 6, false)
+                        .with_resource(ResourceVariant::TEST_A, 6, false)
+                        .with_resource(ResourceVariant::TEST_B, 6, false),
                     stockpile_reliant: StockpileReliantTag {},
                 });
                 debug_assert!(res_spawned.is_ok());
@@ -152,8 +173,8 @@ impl Game {
                 }
             }
 
-            let on_move_tick = self.current_tick % 30 == 0;
-            let on_work_tick = self.current_tick % 30 == 10 || self.current_tick % 30 == 20;
+            let on_move_tick = self.current_tick % 3 == 0;
+            let on_work_tick = self.current_tick % 3 != 0;
 
             let mut workers = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS).unwrap();
             self.scene.run_system(define_system!(
@@ -263,11 +284,75 @@ impl Game {
             &engine.frame_arena,
         );
 
-        // Draw placeholders for every game object with a TilePosition
+        // Draw placeholders
         let placeholder_sprite = engine.resource_db.get_sprite(self.placeholder_sprite);
         let scale = self.camera.output_size / self.camera.size;
-        self.scene
-            .run_system(define_system!(|_, tile_positions: &[TilePosition]| {
+
+        // Non-specific stockpiles
+        self.scene.run_system(define_system!(
+            |_,
+             tile_positions: &[TilePosition],
+             stockpiles: &[Stockpile],
+             _tags: &[StockpileReliantTag]| {
+                for (tile_pos, stockpile) in tile_positions.iter().zip(stockpiles) {
+                    draw_stockpile(
+                        &engine.resource_db,
+                        &mut engine.resource_loader,
+                        &mut draw_queue,
+                        DrawLayer::LooseStockpiles,
+                        placeholder_sprite,
+                        scale,
+                        tile_pos,
+                        stockpile,
+                    );
+                }
+            }
+        ));
+
+        // Characters' stockpiles
+        self.scene.run_system(define_system!(
+            |_,
+             tile_positions: &[TilePosition],
+             stockpiles: &[Stockpile],
+             _chars: &[CharacterStatus]| {
+                for (tile_pos, stockpile) in tile_positions.iter().zip(stockpiles) {
+                    draw_stockpile(
+                        &engine.resource_db,
+                        &mut engine.resource_loader,
+                        &mut draw_queue,
+                        DrawLayer::CarriedStockpiles,
+                        placeholder_sprite,
+                        scale,
+                        tile_pos,
+                        stockpile,
+                    );
+                }
+            }
+        ));
+
+        // Job stations' stockpiles
+        self.scene.run_system(define_system!(
+            |_,
+             tile_positions: &[TilePosition],
+             stockpiles: &[Stockpile],
+             _job_stations: &[JobStationStatus]| {
+                for (tile_pos, stockpile) in tile_positions.iter().zip(stockpiles) {
+                    draw_stockpile(
+                        &engine.resource_db,
+                        &mut engine.resource_loader,
+                        &mut draw_queue,
+                        DrawLayer::JobStationStockpiles,
+                        placeholder_sprite,
+                        scale,
+                        tile_pos,
+                        stockpile,
+                    );
+                }
+            }
+        ));
+
+        self.scene.run_system(define_system!(
+            |_, tile_positions: &[TilePosition], _characters: &[CharacterStatus]| {
                 for tile_pos in tile_positions {
                     let dst = Rect::xywh(
                         tile_pos.x as f32 * scale.x,
@@ -277,15 +362,54 @@ impl Game {
                     );
                     let draw_success = placeholder_sprite.draw(
                         dst,
-                        DrawLayer::GameObjects as u8,
+                        DrawLayer::Characters as u8,
                         &mut draw_queue,
                         &engine.resource_db,
                         &mut engine.resource_loader,
                     );
                     debug_assert!(draw_success);
                 }
-            }));
+            }
+        ));
 
         draw_queue.dispatch_draw(&engine.frame_arena, platform);
+    }
+}
+
+fn draw_stockpile(
+    resources: &ResourceDatabase,
+    resource_loader: &mut ResourceLoader,
+    draw_queue: &mut DrawQueue,
+    layer: DrawLayer,
+    placeholder_sprite: &SpriteAsset,
+    scale: Vec2,
+    tile_pos: &TilePosition,
+    stockpile: &Stockpile,
+) {
+    for i in 0..stockpile.variant_count {
+        let stockpile_pos = [
+            Vec2::new(0.3, 0.75),
+            Vec2::new(0.6, 0.5),
+            Vec2::new(0.2, 0.25),
+        ][i as usize];
+        for j in 0..stockpile.amounts[i as usize].min(5) {
+            let individual_offset = [
+                Vec2::new(-0.1, -0.07),
+                Vec2::new(0.1, 0.02),
+                Vec2::new(0.0, -0.08),
+                Vec2::new(-0.05, 0.02),
+                Vec2::new(0.05, -0.03),
+            ][j as usize];
+            let off = stockpile_pos + individual_offset;
+            let dst = Rect::xywh(
+                (tile_pos.x as f32 + off.x) * scale.x,
+                (tile_pos.y as f32 + off.y) * scale.y,
+                scale.x / 5.,
+                scale.y / 5.,
+            );
+            let draw_success =
+                placeholder_sprite.draw(dst, layer as u8, draw_queue, resources, resource_loader);
+            debug_assert!(draw_success);
+        }
     }
 }
