@@ -118,6 +118,11 @@ impl BitGrid<'_> {
     }
 
     pub fn set(&mut self, pos: TilePosition, new_value: bool) {
+        assert!(pos.x >= 0);
+        assert!((pos.x as usize) < self.width);
+        assert!(pos.y >= 0);
+        assert!((pos.y as usize) < self.height);
+
         let x = pos.x as usize;
         let bitfield_x = x / BIT_GRID_BITS;
         let x_bit_offset = x % BIT_GRID_BITS;
@@ -131,6 +136,11 @@ impl BitGrid<'_> {
     }
 
     pub fn get(&self, pos: TilePosition) -> bool {
+        assert!(pos.x >= 0);
+        assert!((pos.x as usize) < self.width);
+        assert!(pos.y >= 0);
+        assert!((pos.y as usize) < self.height);
+
         let x = pos.x as usize;
         let bitfield_x = x / BIT_GRID_BITS;
         let bitfield = self.values[bitfield_x + pos.y as usize * self.stride];

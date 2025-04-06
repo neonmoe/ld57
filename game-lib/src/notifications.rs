@@ -50,4 +50,12 @@ impl<T> NotificationSet<'_, T> {
         let (_, t) = self.notifications.pop().unwrap();
         Some(t)
     }
+
+    pub fn get_mut(&mut self, id: NotificationId) -> Option<&mut T> {
+        let index = self
+            .notifications
+            .iter()
+            .position(|(id_, _)| *id_ == id.0)?;
+        Some(&mut self.notifications[index].1)
+    }
 }

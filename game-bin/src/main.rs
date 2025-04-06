@@ -3,6 +3,9 @@ use game_lib::Game;
 use platform_sdl2::Sdl2Platform;
 
 fn main() {
+    #[cfg(feature = "tracing-subscriber")]
+    tracing_subscriber::fmt::init();
+
     let platform = Sdl2Platform::new("game"); // TODO: come up with a name
 
     static ARENA: &LinearAllocator = static_allocator!(8 * 1024 * 1024);
@@ -16,7 +19,7 @@ fn main() {
             ..EngineLimits::DEFAULT
         },
     );
-    let mut game = Game::new(ARENA, &engine);
+    let mut game = Game::new(ARENA, &engine, &platform);
 
     platform.run_game_loop(&mut engine, |timestamp, platform, engine| {
         game.iterate(engine, platform, timestamp);

@@ -11,3 +11,4 @@ glam = { version = "0.30.1", default-features = false, features = ["libm", "byte
 libm = "0.2.11"
 platform = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
 seahash = "4.1.0"
+tracing = { version = "0.1.41", default-features = false }

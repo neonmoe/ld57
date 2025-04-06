@@ -9,12 +9,14 @@ game-lib = { version = "0.1.0", path = "../game-lib" }
 platform = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
 platform-sdl2 = { git = "https://github.com/pcjens/rust-game-engine-prototype", version = "0.1.0" }
 sdl2 = "*" # just so we can pass features, let platform-sdl2 pick the version
+tracing-subscriber = { version = "0.3.19", optional = true, features = ["fmt", "std"] }
 
 [features]
 default = []
 sdl-bundled = ["sdl2/bundled"]
 sdl-static-link = ["sdl2/static-link"]
 sdl-use-vcpkg = ["sdl2/use-vcpkg"]
+tracing-subscriber = ["dep:tracing-subscriber"]
 
 [package.metadata.bundle]
 name = "Game"

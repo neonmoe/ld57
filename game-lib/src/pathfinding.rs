@@ -1,6 +1,9 @@
-use core::ops::{Add, Neg};
+use core::{
+    fmt::{self, Debug},
+    ops::{Add, Neg},
+};
 
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayString, ArrayVec};
 use bytemuck::Zeroable;
 use engine::{allocators::LinearAllocator, collections::FixedVec};
 use glam::I16Vec2;
@@ -13,26 +16,24 @@ use crate::{
 pub fn find_path_to(
     from: TilePosition,
     to: TilePosition,
-    is_not_walkable: BitGrid,
+    walls: &BitGrid,
     temp_arena: &LinearAllocator,
 ) -> Option<Path> {
-    let mut destinations = BitGrid::new(temp_arena, is_not_walkable.size())?;
+    let mut destinations = BitGrid::new(temp_arena, walls.size())?;
     destinations.set(to, true);
-    find_path_to_any(from, destinations, is_not_walkable, temp_arena)
+    find_path_to_any(from, &destinations, walls, temp_arena)
 }
 
 pub fn find_path_to_any(
     from: TilePosition,
-    destinations: BitGrid,
-    is_not_walkable: BitGrid,
+    destinations: &BitGrid,
+    walls: &BitGrid,
     temp_arena: &LinearAllocator,
 ) -> Option<Path> {
-    let perimeter = is_not_walkable.width() * 2 + is_not_walkable.height() * 2;
-    let mut try_positions: FixedVec<TilePosition> = FixedVec::new(temp_arena, perimeter)?;
-    let mut shortest_distance_to_pos: Grid<u8> =
-        Grid::new_zeroed(temp_arena, is_not_walkable.size())?;
-    let mut step_to_previous_in_path: Grid<Direction> =
-        Grid::new_zeroed(temp_arena, is_not_walkable.size())?;
+    let mut try_positions: FixedVec<TilePosition> =
+        FixedVec::new(temp_arena, walls.width() * walls.height())?;
+    let mut shortest_distance_to_pos: Grid<u8> = Grid::new_zeroed(temp_arena, walls.size())?;
+    let mut step_to_previous_in_path: Grid<Direction> = Grid::new_zeroed(temp_arena, walls.size())?;
 
     let _ = try_positions.push(from);
     while !try_positions.is_empty() {
@@ -49,7 +50,7 @@ pub fn find_path_to_any(
         }
 
         // Backtrack and finish if this is a valid destination (and walkable).
-        if destinations.get(try_pos) && !is_not_walkable.get(try_pos) {
+        if destinations.get(try_pos) && !walls.get(try_pos) {
             let mut path_to_start = Path::default();
             let mut path_end = try_pos;
             while path_end != from && !path_to_start.is_full() {
@@ -75,7 +76,10 @@ pub fn find_path_to_any(
             }
 
             let neighbor = try_pos + dir;
-            if is_not_walkable.in_bounds(neighbor) && !is_not_walkable.get(neighbor) {
+            if walls.in_bounds(neighbor)
+                && !walls.get(neighbor)
+                && shortest_distance_to_pos[neighbor] == 0
+            {
                 let could_add_neighbor = try_positions.push(neighbor);
                 debug_assert!(could_add_neighbor.is_ok());
                 shortest_distance_to_pos[neighbor] = try_pos_distance + 1;
@@ -182,20 +186,35 @@ pub struct Path {
     steps_in_last_quad: u8,
 }
 
+impl Debug for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = &mut f.debug_list();
+        for step in self {
+            match step {
+                Direction::Up => list = list.entry(&'↑'),
+                Direction::Down => list = list.entry(&'↓'),
+                Direction::Left => list = list.entry(&'←'),
+                Direction::Right => list = list.entry(&'→'),
+            }
+        }
+        list.finish()
+    }
+}
+
 impl Path {
     /// Adds a step to the end of the path.
     ///
     /// Returns `false` if the Path is full (480 steps is the maximum).
     pub fn add_step(&mut self, direction: Direction) -> bool {
-        if self.steps_in_last_quad == 0 {
+        if self.steps_in_last_quad % 4 == 0 {
             if self.step_quads.try_push(direction.to_u8()).is_err() {
                 return false;
             }
-            self.steps_in_last_quad += 1;
+            self.steps_in_last_quad = (self.steps_in_last_quad + 1) % 4;
         } else {
             let quad = self.step_quads.last_mut().unwrap();
             *quad |= direction.to_u8() << (self.steps_in_last_quad * 2);
-            self.steps_in_last_quad = (self.steps_in_last_quad + 1) % 4;
+            self.steps_in_last_quad += 1;
         }
         true
     }
@@ -203,9 +222,13 @@ impl Path {
     pub fn reverse(&self) -> Path {
         let mut path = Path::default();
         for step in self.into_iter().rev() {
-            path.add_step(step);
+            path.add_step(-step);
         }
         path
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.step_quads.is_empty()
     }
 
     pub fn is_full(&self) -> bool {
@@ -319,7 +342,12 @@ mod tests {
         map.set(TilePosition::new(3, 2), true);
         map.set(TilePosition::new(4, 1), true);
 
-        let path = find_path_to(TilePosition::new(0, 1), TilePosition::new(4, 2), map, ARENA);
+        let path = find_path_to(
+            TilePosition::new(0, 1),
+            TilePosition::new(4, 2),
+            &map,
+            ARENA,
+        );
         assert!(path.is_some(), "should be able to find the way");
         assert_eq!(
             expected_path.len(),

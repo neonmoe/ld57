@@ -1,81 +1,159 @@
 //! Character behavior controllers.
 
-use core::time::Duration;
-
 use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
-use engine::{define_system, game_objects::Scene};
-use platform::Instant;
+use engine::{allocators::LinearAllocator, define_system, game_objects::Scene};
+use tracing::{debug, trace};
 
 use crate::{
+    GameTicks,
     game_object::{
-        CharacterStatus, JobStationStatus, JobStationVariant, ResourceVariant, Stockpile,
-        TilePosition,
+        CharacterStatus, JobStationStatus, JobStationVariant, Resource, ResourceVariant, Stockpile,
+        StockpileReliantTag, TilePosition,
     },
+    grid::BitGrid,
     notifications::{NotificationId, NotificationSet},
+    pathfinding::{Path, find_path_to, find_path_to_any},
 };
 
 #[derive(Debug)]
 pub struct HaulDescription {
     resource: ResourceVariant,
+    amount: u8,
     destination: (JobStationVariant, TilePosition),
 }
 
 #[derive(Debug)]
 enum Goal {
     Work {
-        waiting_on_haul_id: Option<(NotificationId, Instant)>,
+        haul_wait_timeout: Option<(NotificationId, GameTicks)>,
+        job: JobStationVariant,
     },
     Haul {
         description: HaulDescription,
     },
+    FollowPath {
+        from: TilePosition,
+        path: Path,
+    },
+    // TODO: Add a goal or another way to "stop" a character while an animation
+    // or notification effect is happening (maybe an Animatable component or
+    // something?)
+}
+
+#[derive(Debug)]
+pub enum Occupation {
+    Idle,
+    Hauler,
+    Operator(JobStationVariant),
 }
 
 #[derive(Debug)]
 pub struct Brain {
     goal_stack: ArrayVec<Goal, 8>,
-    pub job: JobStationVariant,
+    pub job: Occupation,
+    pub max_haul_amount: u8,
+    pub wait_ticks: GameTicks,
 }
 
 impl Brain {
     pub fn new() -> Brain {
         Brain {
             goal_stack: ArrayVec::new(),
-            job: JobStationVariant::zeroed(),
+            job: Occupation::Idle,
+            max_haul_amount: 2,
+            wait_ticks: 300,
+        }
+    }
+
+    pub fn next_move_position(&self) -> Option<TilePosition> {
+        if let Some(Goal::FollowPath { from, path }) = self.goal_stack.last() {
+            Some(*from + path.into_iter().next()?)
+        } else {
+            None
         }
     }
 
     pub fn update_goals(
         &mut self,
-        current_brain_index: usize,
-        current_position: TilePosition,
-        time: Instant,
+        (current_brain_index, current_position): (usize, TilePosition),
         scene: &mut Scene,
         haul_notifications: &mut NotificationSet<HaulDescription>,
+        walls: &BitGrid,
+        temp_arena: &LinearAllocator,
     ) {
         if self.goal_stack.is_empty() {
-            self.goal_stack.push(Goal::Work {
-                waiting_on_haul_id: None,
-            });
+            match self.job {
+                Occupation::Idle => {
+                    // Idling!
+                    debug!("brain {current_brain_index}: idling");
+                }
+                Occupation::Operator(job) => {
+                    debug!("brain {current_brain_index}: finding work at {job:?}");
+                    self.goal_stack.push(Goal::Work {
+                        haul_wait_timeout: None,
+                        job,
+                    });
+                }
+                Occupation::Hauler => {
+                    // Find the closest haul job (by destination) and take it
+                    debug!("brain {current_brain_index}: finding hauling work to do");
+                    let mut closest_haul = None;
+                    let mut closest_haul_distance = u16::MAX;
+                    for (id, desc) in haul_notifications.iter() {
+                        let dist = desc.destination.1.manhattan_distance(*current_position);
+                        if dist < closest_haul_distance {
+                            closest_haul_distance = dist;
+                            closest_haul = Some(id);
+                        }
+                    }
+                    if let Some(notif_id) = closest_haul {
+                        if let Some(description) = haul_notifications.get_mut(notif_id) {
+                            debug!("brain {current_brain_index}: hauling {description:?}");
+                            if description.amount > self.max_haul_amount {
+                                description.amount -= self.max_haul_amount;
+                                self.goal_stack.push(Goal::Haul {
+                                    description: HaulDescription {
+                                        resource: description.resource,
+                                        amount: self.max_haul_amount,
+                                        destination: description.destination,
+                                    },
+                                });
+                            } else {
+                                let description = haul_notifications.remove(notif_id).unwrap();
+                                self.goal_stack.push(Goal::Haul { description });
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        match self.goal_stack.last_mut().unwrap() {
-            Goal::Work { waiting_on_haul_id } => {
-                let mut within_working_distance = false;
+        let mut new_instrumental_goal = None;
+        let mut goal_not_acheivable = false;
+        let mut goal_finished = false;
 
+        match self.goal_stack.last_mut().unwrap() {
+            Goal::Work {
+                haul_wait_timeout: waiting_on_haul_id,
+                job,
+            } => {
+                // See if we're ready to work, request resources if needed
+                // (the actual work is done in work ticks upstream)
+                let mut within_working_distance = false;
                 scene.run_system(define_system!(
                     |_,
-                     jobs: &mut [JobStationStatus],
+                     job_stations: &mut [JobStationStatus],
                      stockpiles: &mut [Stockpile],
                      positions: &[TilePosition]| {
-                        for ((job, stockpile), pos) in
-                            jobs.iter_mut().zip(stockpiles).zip(positions)
+                        for ((job_station, stockpile), pos) in
+                            job_stations.iter_mut().zip(stockpiles).zip(positions)
                         {
-                            if job.variant == self.job
+                            if job_station.variant == *job
                                 && current_position.manhattan_distance(**pos) < 2
                             {
                                 within_working_distance = true;
-                                if let Some(details) = job.details() {
+                                if let Some(details) = job_station.details() {
                                     let resources =
                                         stockpile.get_resources_mut(details.resource_variant);
                                     let current_amount = resources.map(|a| *a).unwrap_or(0);
@@ -84,11 +162,13 @@ impl Brain {
                                     {
                                         let description = HaulDescription {
                                             resource: details.resource_variant,
-                                            destination: (job.variant, *pos),
+                                            destination: (job_station.variant, *pos),
+                                            amount: details.resource_amount,
                                         };
+                                        debug!("brain {current_brain_index}: requesting {description:?}");
                                         match haul_notifications.notify(description) {
                                             Ok(haul_id) => {
-                                                *waiting_on_haul_id = Some((haul_id, time));
+                                                *waiting_on_haul_id = Some((haul_id, self.wait_ticks));
                                             }
                                             Err(_) => {
                                                 debug_assert!(
@@ -105,40 +185,105 @@ impl Brain {
                     }
                 ));
 
-                if let Some((haul_id, req_time)) = waiting_on_haul_id.take() {
+                // Do the haul yourself if it's been too long
+                if let Some((haul_id, ticks_left)) = waiting_on_haul_id.take() {
                     let haul_still_waiting = haul_notifications.check(haul_id);
-                    if haul_still_waiting
-                        && time.duration_since(req_time).unwrap_or(Duration::ZERO)
-                            > Duration::from_secs(3)
-                    {
+                    if haul_still_waiting && ticks_left == 0 {
                         // Do it yourself:
                         let description = haul_notifications.remove(haul_id).unwrap();
-                        self.goal_stack.push(Goal::Haul { description });
+                        debug!(
+                            "brain {current_brain_index}: tired of waiting, hauling {}x {:?} myself",
+                            description.amount, description.resource,
+                        );
+                        new_instrumental_goal = Some(Goal::Haul { description });
                     } else {
                         // Keep waiting:
-                        *waiting_on_haul_id = Some((haul_id, time));
+                        *waiting_on_haul_id = Some((haul_id, ticks_left - 1));
                     }
                 }
 
+                // Not near a job station, but the goal is working: get to work
                 if !within_working_distance {
-                    // TODO: find work
+                    // Mark suitable job stations on the grid
+                    let Some(mut destinations) = BitGrid::new(temp_arena, walls.size()) else {
+                        debug_assert!(false, "out of memory for pathfinding to job station :(");
+                        return;
+                    };
+                    scene.run_system(define_system!(
+                        |_, positions: &[TilePosition], job_stations: &[JobStationStatus]| {
+                            for (pos, job_station) in positions.iter().zip(job_stations) {
+                                if job_station.variant == *job {
+                                    destinations.set(*pos, true);
+                                    trace!("brain {current_brain_index}: found potential job station at: {pos:?}");
+                                }
+                            }
+                        }
+                    ));
+
+                    // Find path
+                    let from = current_position;
+                    if let Some(path) = find_path_to_any(from, &destinations, walls, temp_arena) {
+                        debug!("brain {current_brain_index}: found path to work: {path:?}");
+                        new_instrumental_goal = Some(Goal::FollowPath { from, path });
+                    } else {
+                        debug!("brain {current_brain_index}: could not find path to work :(");
+                        goal_not_acheivable = true;
+                        // TODO: signal that work isn't available?
+                    }
                 }
             }
+
             Goal::Haul {
                 description:
                     HaulDescription {
                         resource,
                         destination,
+                        amount: needed_amount,
                     },
             } => {
+                // Try to pick the resource from the current tile
+                let mut picked_up_thus_far = 0;
+                scene.run_system(define_system!(
+                    |_, positions: &[TilePosition], stockpiles: &mut [Stockpile]| {
+                        for (position, stockpile) in positions.iter().zip(stockpiles) {
+                            if *position == current_position
+                                && stockpile.has_non_reserved_resources(*resource)
+                            {
+                                let stockpile_amount =
+                                    stockpile.get_resources_mut(*resource).unwrap();
+                                let picked_up =
+                                    (*needed_amount - picked_up_thus_far).min(*stockpile_amount);
+                                *stockpile_amount -= picked_up;
+                                picked_up_thus_far += picked_up;
+                                debug!("picked up {picked_up}x {resource:?}");
+                            }
+                            if picked_up_thus_far >= *needed_amount {
+                                break;
+                            }
+                        }
+                    }
+                ));
+
+                // Check if we have enough items in our stockpile (or move the
+                // stuff we just picked up into our stockpile if we picked up
+                // some)
                 let mut resources_acquired = false;
                 scene.run_system(define_system!(
-                    |_, characters: &[CharacterStatus], stockpiles: &[Stockpile]| {
+                    |_, characters: &[CharacterStatus], stockpiles: &mut [Stockpile]| {
                         for (character, stockpile) in characters.iter().zip(stockpiles) {
                             if character.brain_index == current_brain_index {
-                                let current_amount =
+                                let mut current_amount =
                                     stockpile.get_resources(*resource).unwrap_or(0);
-                                if current_amount > 0 {
+                                if picked_up_thus_far > 0 && current_amount < *needed_amount {
+                                    let pocketed =
+                                        picked_up_thus_far.min(*needed_amount - current_amount);
+                                    debug!("adding {pocketed}x {resource:?} to my stockpile");
+                                    stockpile.add_resource(*resource, pocketed).unwrap();
+                                    stockpile.mark_reserved(*resource, true);
+                                    picked_up_thus_far -= pocketed;
+                                    current_amount += pocketed;
+                                }
+                                if current_amount >= *needed_amount {
                                     resources_acquired = true;
                                 }
                                 break;
@@ -147,12 +292,144 @@ impl Brain {
                     }
                 ));
 
+                if picked_up_thus_far > 0 {
+                    debug!(
+                        "brain {current_brain_index}: could not fit all the resources in the character's stockpile, dropping the rest ({picked_up_thus_far}x {resource:?}) at {current_position:?}"
+                    );
+                    let dropped_resources = Resource {
+                        position: current_position,
+                        stockpile: Stockpile::zeroed().with_resource(
+                            *resource,
+                            picked_up_thus_far,
+                            false,
+                        ),
+                        stockpile_reliant: StockpileReliantTag {},
+                    };
+                    if scene.spawn(dropped_resources).is_err() {
+                        debug!(
+                            "tried to pick up resources and managed to overflow the character's pockets *and the floor*"
+                        );
+                        debug_assert!(false, "resource game object table is too small");
+                    }
+                }
+
+                // Either find a path to the destination or the resources,
+                // depending on if we have the stuff
+                let mut drop_off = false;
                 if resources_acquired {
-                    // TODO: haul stuff to the destination
+                    debug!(
+                        "brain {current_brain_index}: I have the needed {needed_amount}x {resource:?}"
+                    );
+                    let (from, to) = (current_position, destination.1);
+                    if let Some(path) = find_path_to(from, to, walls, temp_arena) {
+                        if path.is_empty() {
+                            drop_off = true;
+                            goal_finished = true;
+                        } else {
+                            debug!("brain {current_brain_index}: bringing the stuff via {path:?}");
+                            self.goal_stack.push(Goal::FollowPath { from, path });
+                        }
+                    } else {
+                        debug!(
+                            "brain {current_brain_index}: could not find path from {from:?} to {to:?}"
+                        );
+                    }
                 } else {
-                    // TODO: find resources to haul
+                    debug!("brain {current_brain_index}: looking for {resource:?}");
+
+                    // Mark suitable resources on the grid
+                    let Some(mut destinations) = BitGrid::new(temp_arena, walls.size()) else {
+                        debug_assert!(false, "out of memory for pathfinding to resource :(");
+                        return;
+                    };
+                    scene.run_system(define_system!(
+                        |_, positions: &[TilePosition], stockpiles: &[Stockpile]| {
+                            for (pos, stockpile) in positions.iter().zip(stockpiles) {
+                                if *pos != current_position && stockpile.has_non_reserved_resources(*resource) {
+                                    destinations.set(*pos, true);
+                                    trace!("brain {current_brain_index}: found potential resource at: {pos:?}");
+                                }
+                            }
+                        }
+                    ));
+
+                    // Find path
+                    let from = current_position;
+                    if let Some(path) = find_path_to_any(from, &destinations, walls, temp_arena) {
+                        debug!("brain {current_brain_index}: found path to resource: {path:?}");
+                        new_instrumental_goal = Some(Goal::FollowPath { from, path });
+                    } else {
+                        debug!(
+                            "brain {current_brain_index}: could not find resource {resource:?}, posting the notification again :("
+                        );
+                        goal_not_acheivable = true;
+                        // Repost the haul notification for someone else to pick
+                        // (the original poster won't know about this one, but
+                        // that's fine).
+                        let _ = haul_notifications.notify(HaulDescription {
+                            resource: *resource,
+                            destination: *destination,
+                            amount: *needed_amount,
+                        });
+                    }
+                }
+
+                // We have the stuff, and are at the destination, drop the resources off
+                if drop_off {
+                    debug!(
+                        "brain {current_brain_index}: dropping off haul at {current_position:?}"
+                    );
+                    todo!("drop off the haul (remember to un-reserve the resource variant)");
                 }
             }
+
+            Goal::FollowPath { from, path } => {
+                if path.is_empty() {
+                    debug!("brain {current_brain_index}: reached destination {from:?}");
+                    self.goal_stack.pop();
+                } else if current_position != *from {
+                    let mut destination = *from;
+                    let mut steps_progressed = None;
+                    for (i, step) in path.into_iter().enumerate() {
+                        destination = destination + step;
+                        if destination == current_position {
+                            steps_progressed = Some(i + 1);
+                        }
+                    }
+
+                    if let Some(steps_progressed) = steps_progressed {
+                        // Progressed on the path, truncate the start of the path.
+                        let mut truncated_path = Path::default();
+                        for step in path.into_iter().skip(steps_progressed) {
+                            truncated_path.add_step(step);
+                        }
+                        *from = current_position;
+                        *path = truncated_path;
+                        trace!("brain {current_brain_index}: moved {steps_progressed} steps");
+                    } else if let Some(new_path) =
+                        find_path_to(current_position, destination, walls, temp_arena)
+                    {
+                        // Strayed off the path, make a new one.
+                        *from = current_position;
+                        *path = new_path;
+                        debug!(
+                            "brain {current_brain_index}: strayed off, made a new path: {path:?}"
+                        );
+                    } else {
+                        // Strayed off the path, and can't find a new one, give up.
+                        self.goal_stack.pop();
+                        debug!(
+                            "brain {current_brain_index}: can't find destination {destination:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        if goal_not_acheivable || goal_finished {
+            self.goal_stack.pop();
+        } else if let Some(new_instrumental_goal) = new_instrumental_goal {
+            self.goal_stack.push(new_instrumental_goal);
         }
     }
 }

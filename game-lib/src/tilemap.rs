@@ -23,7 +23,7 @@ pub enum Tile {
 }
 
 pub struct Tilemap<'a> {
-    tiles: Grid<'a, Tile>,
+    pub tiles: Grid<'a, Tile>,
     tile_sprites: FixedVec<'a, SpriteHandle>,
 }
 
