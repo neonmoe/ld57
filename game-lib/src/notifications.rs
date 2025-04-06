@@ -58,4 +58,8 @@ impl<T> NotificationSet<'_, T> {
             .position(|(id_, _)| *id_ == id.0)?;
         Some(&mut self.notifications[index].1)
     }
+
+    pub fn len(&self) -> usize {
+        self.notifications.len()
+    }
 }

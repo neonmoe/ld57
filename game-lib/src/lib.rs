@@ -27,14 +27,14 @@ use engine::{
     },
 };
 use game_object::{
-    Character, CharacterStatus, JobStation, JobStationStatus, JobStationVariant, Resource,
-    ResourceVariant, Stockpile, StockpileReliantTag, TilePosition,
+    Character, CharacterStatus, Collider, JobStation, JobStationStatus, JobStationVariant,
+    Resource, ResourceVariant, Stockpile, StockpileReliantTag, TilePosition,
 };
 use glam::Vec2;
 use grid::BitGrid;
 use notifications::NotificationSet;
 use platform::{Instant, Platform};
-use tilemap::Tilemap;
+use tilemap::{Tile, Tilemap};
 use tracing::debug;
 
 const MAX_CHARACTERS: usize = 10;
@@ -46,7 +46,6 @@ pub const MILLIS_PER_TICK: u64 = 100;
 #[repr(u8)]
 enum DrawLayer {
     Tilemap,
-    JobStations,
     LooseStockpiles,
     Characters,
     JobStationStockpiles,
@@ -86,6 +85,7 @@ impl Game {
             status: CharacterStatus { brain_index: 0 },
             position: TilePosition::new(5, 1),
             held: Stockpile::zeroed(),
+            collider: Collider::NOT_WALKABLE,
         });
         debug_assert!(char_spawned.is_ok());
 
@@ -93,6 +93,7 @@ impl Game {
             status: CharacterStatus { brain_index: 1 },
             position: TilePosition::new(6, 4),
             held: Stockpile::zeroed(),
+            collider: Collider::NOT_WALKABLE,
         });
         debug_assert!(char_spawned.is_ok());
 
@@ -103,6 +104,7 @@ impl Game {
                 variant: JobStationVariant::ENERGY_GENERATOR,
                 work_invested: 0,
             },
+            collider: Collider::NOT_WALKABLE,
         });
         debug_assert!(job_station_spawned.is_ok());
 
@@ -138,7 +140,6 @@ impl Game {
 
     pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, timestamp: Instant) {
         // Game logic:
-
         while timestamp >= self.next_tick_time {
             self.next_tick_time = self.next_tick_time + Duration::from_millis(MILLIS_PER_TICK);
             self.current_tick += 1;
@@ -149,9 +150,28 @@ impl Game {
             // Reserve some of the frame arena for one-function-call-long allocations e.g. pathfinding
             let mut temp_arena = LinearAllocator::new(&engine.frame_arena, 1024 * 1024).unwrap();
 
-            let walls = BitGrid::new(&engine.frame_arena, self.tilemap.tiles.size()).unwrap();
-            // TODO: splat all the stuff in the world to walls
+            // Set up this tick's collision information
+            let mut walls = BitGrid::new(&engine.frame_arena, self.tilemap.tiles.size()).unwrap();
+            self.scene.run_system(define_system!(
+                |_, colliders: &[Collider], positions: &[TilePosition]| {
+                    for (collider, pos) in colliders.iter().zip(positions) {
+                        if collider.is_not_walkable() {
+                            walls.set(*pos, true);
+                        }
+                    }
+                }
+            ));
+            for y in 0..self.tilemap.tiles.height() {
+                for x in 0..self.tilemap.tiles.width() {
+                    match self.tilemap.tiles[(x, y)] {
+                        Tile::Wall => walls.set(TilePosition::new(x as i16, y as i16), true),
+                        Tile::Seafloor => {}
+                        Tile::_Count => debug_assert!(false, "Tile::_Count in the tilemap?"),
+                    }
+                }
+            }
 
+            // Run the think tick for the brains
             if let Some(mut brains_to_think) = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS) {
                 self.scene.run_system(define_system!(
                     |_, characters: &[CharacterStatus], positions: &[TilePosition]| {
@@ -167,7 +187,7 @@ impl Game {
                         &mut self.scene,
                         &mut self.haul_notifications,
                         &walls,
-                        &temp_arena,
+                        &mut temp_arena,
                     );
                     temp_arena.reset();
                 }
@@ -176,6 +196,7 @@ impl Game {
             let on_move_tick = self.current_tick % 3 == 0;
             let on_work_tick = self.current_tick % 3 != 0;
 
+            // Set up this tick's working worker information
             let mut workers = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS).unwrap();
             self.scene.run_system(define_system!(
                 |_, characters: &[CharacterStatus], positions: &[TilePosition]| {
@@ -213,7 +234,9 @@ impl Game {
                             jobs.iter_mut().zip(stockpiles).zip(positions)
                         {
                             for (worker_job, worker_position) in workers.iter() {
-                                if job.variant == *worker_job && worker_position == pos {
+                                if job.variant == *worker_job
+                                    && worker_position.manhattan_distance(**pos) < 2
+                                {
                                     if let Some(details) = job.details() {
                                         let resources =
                                             stockpile.get_resources_mut(details.resource_variant);
@@ -376,6 +399,7 @@ impl Game {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_stockpile(
     resources: &ResourceDatabase,
     resource_loader: &mut ResourceLoader,

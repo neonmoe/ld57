@@ -16,27 +16,43 @@ use crate::{
 pub fn find_path_to(
     from: TilePosition,
     to: TilePosition,
+    allow_wall_destination: bool,
     walls: &BitGrid,
     temp_arena: &LinearAllocator,
 ) -> Option<Path> {
     let mut destinations = BitGrid::new(temp_arena, walls.size())?;
     destinations.set(to, true);
-    find_path_to_any(from, &destinations, walls, temp_arena)
+    find_path_to_any(
+        from,
+        &destinations,
+        allow_wall_destination,
+        walls,
+        temp_arena,
+    )
 }
 
 pub fn find_path_to_any(
     from: TilePosition,
     destinations: &BitGrid,
+    allow_wall_destination: bool,
     walls: &BitGrid,
     temp_arena: &LinearAllocator,
 ) -> Option<Path> {
+    if !destinations.in_bounds(from) {
+        return None;
+    } else if destinations.get(from) {
+        return Some(Path::default());
+    }
+
     let mut try_positions: FixedVec<TilePosition> =
         FixedVec::new(temp_arena, walls.width() * walls.height())?;
     let mut shortest_distance_to_pos: Grid<u8> = Grid::new_zeroed(temp_arena, walls.size())?;
     let mut step_to_previous_in_path: Grid<Direction> = Grid::new_zeroed(temp_arena, walls.size())?;
 
     let _ = try_positions.push(from);
+    shortest_distance_to_pos[from] = 1;
     while !try_positions.is_empty() {
+        // Find the nearest position to try
         let mut try_pos_index = 0;
         let mut try_pos = try_positions[try_pos_index];
         let mut try_pos_distance = shortest_distance_to_pos[try_pos];
@@ -49,41 +65,41 @@ pub fn find_path_to_any(
             }
         }
 
-        // Backtrack and finish if this is a valid destination (and walkable).
-        if destinations.get(try_pos) && !walls.get(try_pos) {
-            let mut path_to_start = Path::default();
-            let mut path_end = try_pos;
-            while path_end != from && !path_to_start.is_full() {
-                let dir = step_to_previous_in_path[path_end];
-                path_end = path_end + dir;
-                path_to_start.add_step(dir);
-            }
-            if path_end == from {
-                return Some(path_to_start.reverse());
-            } else {
-                return None;
-            }
-        }
-
-        // Otherwise, remove this position from and add walkable neighbors to
-        // the try list.
+        // Remove this position from the list
         let last_index = try_positions.len() - 1;
         try_positions.swap(try_pos_index, last_index);
         try_positions.truncate(last_index);
+
+        // Try neighbors
         for dir in Direction::ALL_DIRECTIONS {
-            if step_to_previous_in_path[try_pos] == dir {
-                continue;
+            let neighbor = try_pos + dir;
+            if !walls.in_bounds(neighbor) || shortest_distance_to_pos[neighbor] != 0 {
+                continue; // Oout of bounds or already been there
             }
 
-            let neighbor = try_pos + dir;
-            if walls.in_bounds(neighbor)
-                && !walls.get(neighbor)
-                && shortest_distance_to_pos[neighbor] == 0
-            {
+            let can_walk = !walls.get(neighbor);
+            if can_walk {
                 let could_add_neighbor = try_positions.push(neighbor);
                 debug_assert!(could_add_neighbor.is_ok());
                 shortest_distance_to_pos[neighbor] = try_pos_distance + 1;
                 step_to_previous_in_path[neighbor] = -dir;
+            }
+
+            if destinations.get(neighbor) && (allow_wall_destination || can_walk) {
+                // Backtrack and finish if this is a valid destination (and
+                // walkable, or allow_wall_destination is set).
+                let mut path_to_start = Path::default();
+                let mut path_end = if can_walk { neighbor } else { try_pos };
+                while path_end != from && !path_to_start.is_full() {
+                    let dir = step_to_previous_in_path[path_end];
+                    path_end = path_end + dir;
+                    path_to_start.add_step(dir);
+                }
+                if path_end == from {
+                    return Some(path_to_start.reverse());
+                } else {
+                    return None;
+                }
             }
         }
     }
@@ -192,20 +208,6 @@ impl Path {
             self.steps_in_last_quad += 1;
         }
         true
-    }
-
-    /// Removes the latest step from the end of the path, if it's not empty.
-    pub fn pop_step(&mut self) {
-        if self.is_empty() {
-            return;
-        }
-        self.steps_in_last_quad -= 1;
-        if self.steps_in_last_quad == 0 {
-            self.step_quads.pop();
-            if !self.step_quads.is_empty() {
-                self.steps_in_last_quad = 4;
-            }
-        }
     }
 
     pub fn reverse(&self) -> Path {
@@ -334,6 +336,7 @@ mod tests {
         let path = find_path_to(
             TilePosition::new(0, 1),
             TilePosition::new(4, 2),
+            false,
             &map,
             ARENA,
         );

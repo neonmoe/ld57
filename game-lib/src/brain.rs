@@ -1,8 +1,12 @@
 //! Character behavior controllers.
 
+use core::cmp::Reverse;
+
 use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
-use engine::{allocators::LinearAllocator, define_system, game_objects::Scene};
+use engine::{
+    allocators::LinearAllocator, collections::FixedVec, define_system, game_objects::Scene,
+};
 use tracing::{debug, trace};
 
 use crate::{
@@ -88,7 +92,7 @@ impl Brain {
         scene: &mut Scene,
         haul_notifications: &mut NotificationSet<HaulDescription>,
         walls: &BitGrid,
-        temp_arena: &LinearAllocator,
+        temp_arena: &mut LinearAllocator,
     ) {
         let span = tracing::info_span!("", current_brain_index);
         let _enter = span.enter();
@@ -109,17 +113,49 @@ impl Brain {
                 Occupation::Hauler => {
                     // Find the closest haul job (by destination) and take it
                     trace!("finding hauling work to do");
-                    let mut closest_haul = None;
-                    let mut closest_haul_distance = u16::MAX;
+
+                    let Some(mut hauls_by_distance) =
+                        FixedVec::new(temp_arena, haul_notifications.len())
+                    else {
+                        debug_assert!(false, "not enough memory for haul distance calculation");
+                        return;
+                    };
                     for (id, desc) in haul_notifications.iter() {
                         let dist = desc.destination.1.manhattan_distance(*current_position);
-                        if dist < closest_haul_distance {
-                            closest_haul_distance = dist;
-                            closest_haul = Some(id);
-                        }
+                        let could_add = hauls_by_distance.push((id, dist));
+                        debug_assert!(could_add.is_ok());
                     }
-                    if let Some(notif_id) = closest_haul {
+                    hauls_by_distance.sort_unstable_by_key(|(_, dist)| Reverse(*dist));
+
+                    let capacity_left = temp_arena.total() - temp_arena.allocated();
+                    let mut temp_arena = LinearAllocator::new(temp_arena, capacity_left).unwrap();
+                    while let Some((notif_id, _)) = hauls_by_distance.pop() {
+                        temp_arena.reset();
                         if let Some(description) = haul_notifications.get_mut(notif_id) {
+                            // Check that the destination is reachable
+                            let dst = description.destination;
+                            let path_to_dest =
+                                find_path_to(current_position, dst.1, true, walls, &temp_arena);
+                            if path_to_dest.is_none() {
+                                continue;
+                            }
+
+                            // Check that the resource is reachable
+                            let Some(dsts) = find_non_reserved_resources(
+                                scene,
+                                description.resource,
+                                &temp_arena,
+                                walls,
+                            ) else {
+                                continue;
+                            };
+                            let path_to_resource =
+                                find_path_to_any(current_position, &dsts, true, walls, &temp_arena);
+                            if path_to_resource.is_none() {
+                                continue;
+                            }
+
+                            // Accept the job
                             debug!("hauling {description:?}");
                             if description.amount > self.max_haul_amount {
                                 description.amount -= self.max_haul_amount;
@@ -127,7 +163,7 @@ impl Brain {
                                     description: HaulDescription {
                                         resource: description.resource,
                                         amount: self.max_haul_amount,
-                                        destination: description.destination,
+                                        destination: dst,
                                     },
                                 });
                             } else {
@@ -139,6 +175,8 @@ impl Brain {
                 }
             }
         }
+
+        temp_arena.reset();
 
         if self.goal_stack.is_empty() {
             // Nothing useful to do
@@ -244,7 +282,9 @@ impl Brain {
 
                     // Find path
                     let from = current_position;
-                    if let Some(path) = find_path_to_any(from, &destinations, walls, temp_arena) {
+                    if let Some(path) =
+                        find_path_to_any(from, &destinations, true, walls, temp_arena)
+                    {
                         debug!("found path to work: {path:?}");
                         new_instrumental_goal = Some(Goal::FollowPath { from, path });
                     } else {
@@ -341,8 +381,7 @@ impl Brain {
                 if resources_acquired {
                     debug!("I have the needed {requested_amount}x {resource:?}");
                     let (from, to) = (current_position, destination.1);
-                    if let Some(mut path) = find_path_to(from, to, walls, temp_arena) {
-                        path.pop_step();
+                    if let Some(path) = find_path_to(from, to, true, walls, temp_arena) {
                         if path.is_empty() {
                             drop_off = true;
                             goal_finished = true;
@@ -356,25 +395,13 @@ impl Brain {
                 } else {
                     debug!("looking for {resource:?}");
 
-                    // Mark suitable resources on the grid
-                    let Some(mut destinations) = BitGrid::new(temp_arena, walls.size()) else {
-                        debug_assert!(false, "out of memory for pathfinding to resource :(");
-                        return;
-                    };
-                    scene.run_system(define_system!(
-                        |_, positions: &[TilePosition], stockpiles: &[Stockpile]| {
-                            for (pos, stockpile) in positions.iter().zip(stockpiles) {
-                                if stockpile.has_non_reserved_resources(*resource) {
-                                    destinations.set(*pos, true);
-                                    trace!("found potential resource at: {pos:?}");
-                                }
-                            }
-                        }
-                    ));
-
                     // Find path
+                    let destinations =
+                        find_non_reserved_resources(scene, *resource, temp_arena, walls);
                     let from = current_position;
-                    if let Some(path) = find_path_to_any(from, &destinations, walls, temp_arena) {
+                    if let Some(path) = destinations
+                        .and_then(|dsts| find_path_to_any(from, &dsts, true, walls, temp_arena))
+                    {
                         debug!("found path to resource: {path:?}");
                         new_instrumental_goal = Some(Goal::FollowPath { from, path });
                     } else {
@@ -410,9 +437,8 @@ impl Brain {
                                 job_stations.iter().zip(positions).zip(stockpiles)
                             {
                                 if job_station.variant == dst_job && *position == dst_pos {
-                                    debug_assert_eq!(
-                                        1,
-                                        position.manhattan_distance(*current_position),
+                                    debug_assert!(
+                                        position.manhattan_distance(*current_position) < 2
                                     );
                                     let overflow = stockpile
                                         .add_resource(*resource, *requested_amount)
@@ -493,7 +519,7 @@ impl Brain {
                         *path = truncated_path;
                         trace!("moved {steps_progressed} steps");
                     } else if let Some(new_path) =
-                        find_path_to(current_position, destination, walls, temp_arena)
+                        find_path_to(current_position, destination, true, walls, temp_arena)
                     {
                         // Strayed off the path, make a new one.
                         *from = current_position;
@@ -507,6 +533,8 @@ impl Brain {
                 }
             }
         }
+
+        temp_arena.reset();
 
         if goal_not_acheivable {
             debug!("giving up on {:?}", self.goal_stack.last());
@@ -522,4 +550,27 @@ impl Brain {
             self.goal_stack.push(new_instrumental_goal);
         }
     }
+}
+
+fn find_non_reserved_resources<'a>(
+    scene: &mut Scene,
+    resource: ResourceVariant,
+    temp_arena: &'a LinearAllocator,
+    walls: &BitGrid,
+) -> Option<BitGrid<'a>> {
+    let Some(mut destinations) = BitGrid::new(temp_arena, walls.size()) else {
+        debug_assert!(false, "out of memory for pathfinding to resource :(");
+        return None;
+    };
+    scene.run_system(define_system!(
+        |_, positions: &[TilePosition], stockpiles: &[Stockpile]| {
+            for (pos, stockpile) in positions.iter().zip(stockpiles) {
+                if stockpile.has_non_reserved_resources(resource) {
+                    destinations.set(*pos, true);
+                    trace!("found potential resource at: {pos:?}");
+                }
+            }
+        }
+    ));
+    Some(destinations)
 }

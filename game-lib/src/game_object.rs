@@ -14,12 +14,14 @@ pub struct Character {
     pub status: CharacterStatus,
     pub position: TilePosition,
     pub held: Stockpile,
+    pub collider: Collider,
 }
 impl_game_object! {
     impl GameObject for Character using components {
         status: CharacterStatus,
         position: TilePosition,
         held: Stockpile,
+        collider: Collider,
     }
 }
 
@@ -42,12 +44,14 @@ pub struct JobStation {
     pub position: TilePosition,
     pub stockpile: Stockpile,
     pub status: JobStationStatus,
+    pub collider: Collider,
 }
 impl_game_object! {
     impl GameObject for JobStation using components {
         position: TilePosition,
         stockpile: Stockpile,
         status: JobStationStatus,
+        collider: Collider,
     }
 }
 
@@ -57,6 +61,17 @@ impl_game_object! {
 #[repr(C)]
 pub struct CharacterStatus {
     pub brain_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Zeroable, Pod)]
+#[repr(C)]
+pub struct Collider(u8);
+impl Collider {
+    pub const WALKABLE: Collider = Collider(0);
+    pub const NOT_WALKABLE: Collider = Collider(1);
+    pub const fn is_not_walkable(self) -> bool {
+        self.0 != 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Zeroable, Pod)]
