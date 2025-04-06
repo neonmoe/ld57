@@ -2,7 +2,7 @@ use core::ops::Deref;
 
 use bytemuck::{Pod, Zeroable};
 use engine::impl_game_object;
-use glam::IVec2;
+use glam::{I16Vec2, IVec2};
 
 // Game objects
 
@@ -131,16 +131,16 @@ impl Stockpile {
     }
 }
 
-#[derive(Clone, Copy, Debug, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Zeroable, Pod)]
 #[repr(C)]
-pub struct TilePosition(pub IVec2);
+pub struct TilePosition(pub I16Vec2);
 impl TilePosition {
-    pub fn new(x: i32, y: i32) -> TilePosition {
-        TilePosition(IVec2 { x, y })
+    pub fn new(x: i16, y: i16) -> TilePosition {
+        TilePosition(I16Vec2 { x, y })
     }
 }
 impl Deref for TilePosition {
-    type Target = IVec2;
+    type Target = I16Vec2;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

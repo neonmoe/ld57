@@ -3,10 +3,12 @@
 mod brain;
 mod camera;
 mod game_object;
+mod grid;
+mod notifications;
 mod pathfinding;
 mod tilemap;
 
-use brain::{Brain, HaulDescription, NotificationSet};
+use brain::{Brain, HaulDescription};
 use bytemuck::Zeroable;
 use camera::Camera;
 use engine::{
@@ -18,6 +20,7 @@ use game_object::{
     ResourceVariant, Stockpile, TilePosition,
 };
 use glam::Vec2;
+use notifications::NotificationSet;
 use platform::{Instant, Platform};
 use tilemap::Tilemap;
 

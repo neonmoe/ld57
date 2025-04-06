@@ -1,6 +1,7 @@
 use core::{f32::consts::PI, fmt::Write};
 
 use arrayvec::ArrayString;
+use bytemuck::Zeroable;
 use engine::{
     allocators::LinearAllocator,
     collections::FixedVec,
@@ -11,9 +12,9 @@ use engine::{
 use glam::{USizeVec2, Vec2};
 use libm::{ceilf, cosf, floorf, sinf};
 
-use crate::{DrawLayer, camera::Camera};
+use crate::{DrawLayer, camera::Camera, game_object::TilePosition, grid::Grid};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Zeroable)]
 #[repr(u8)]
 pub enum Tile {
     Seafloor,
@@ -22,27 +23,24 @@ pub enum Tile {
 }
 
 pub struct Tilemap<'a> {
-    tiles: FixedVec<'a, Tile>,
-    width: usize,
-    height: usize,
+    tiles: Grid<'a, Tile>,
     tile_sprites: FixedVec<'a, SpriteHandle>,
 }
 
 impl Tilemap<'_> {
     pub fn new<'a>(arena: &'a LinearAllocator, resources: &ResourceDatabase) -> Tilemap<'a> {
         let (width, height) = (128, 128);
-        let mut tiles = FixedVec::new(arena, width * height).unwrap();
+        let mut tiles = Grid::new_zeroed(arena, (width, height)).unwrap();
         for y in 0..height {
             for x in 0..width {
                 let noise = perlin_noise(Vec2::new(x as f32, y as f32) / 4.0);
-                if noise > -0.2 {
-                    let _ = tiles.push(Tile::Seafloor);
+                tiles[(x, y)] = if noise > -0.2 {
+                    Tile::Seafloor
                 } else {
-                    let _ = tiles.push(Tile::Wall);
-                }
+                    Tile::Wall
+                };
             }
         }
-        assert_eq!(width * height, tiles.len());
 
         let tile_types: [Tile; Tile::_Count as usize] = [Tile::Seafloor, Tile::Wall];
         let mut tile_sprites = FixedVec::new(arena, Tile::_Count as usize).unwrap();
@@ -55,8 +53,6 @@ impl Tilemap<'_> {
 
         Tilemap {
             tiles,
-            width,
-            height,
             tile_sprites,
         }
     }
@@ -76,7 +72,7 @@ impl Tilemap<'_> {
             .max(Vec2::ZERO)
             .ceil()
             .as_usizevec2()
-            .min(USizeVec2::new(self.width, self.height));
+            .min(USizeVec2::new(self.tiles.width(), self.tiles.height()));
 
         let mut tile_sprites = FixedVec::new(temp_arena, self.tile_sprites.len()).unwrap();
         for sprite in &*self.tile_sprites {
@@ -86,7 +82,7 @@ impl Tilemap<'_> {
         let scale = camera.output_size / camera.size;
         for y in top_left.y..bottom_right.y {
             for x in top_left.x..bottom_right.x {
-                let tile = self.tiles[x + y * self.width];
+                let tile = self.tiles[(x, y)];
                 let Some(sprite) = tile_sprites.get(tile as usize) else {
                     debug_assert!(false, "missing sprite for tile: {tile:?}");
                     continue;
