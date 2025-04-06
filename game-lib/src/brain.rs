@@ -74,6 +74,14 @@ impl Brain {
         }
     }
 
+    pub fn current_job(&self) -> Option<JobStationVariant> {
+        if let Some(Goal::Work { job, .. }) = self.goal_stack.last() {
+            Some(*job)
+        } else {
+            None
+        }
+    }
+
     pub fn update_goals(
         &mut self,
         (current_brain_index, current_position): (usize, TilePosition),
@@ -135,7 +143,7 @@ impl Brain {
 
         match self.goal_stack.last_mut().unwrap() {
             Goal::Work {
-                haul_wait_timeout: waiting_on_haul_id,
+                haul_wait_timeout,
                 job,
             } => {
                 // See if we're ready to work, request resources if needed
@@ -158,7 +166,7 @@ impl Brain {
                                         stockpile.get_resources_mut(details.resource_variant);
                                     let current_amount = resources.map(|a| *a).unwrap_or(0);
                                     if current_amount < details.resource_amount
-                                        && waiting_on_haul_id.is_none()
+                                        && haul_wait_timeout.is_none()
                                     {
                                         let description = HaulDescription {
                                             resource: details.resource_variant,
@@ -168,7 +176,7 @@ impl Brain {
                                         debug!("brain {current_brain_index}: requesting {description:?}");
                                         match haul_notifications.notify(description) {
                                             Ok(haul_id) => {
-                                                *waiting_on_haul_id = Some((haul_id, self.wait_ticks));
+                                                *haul_wait_timeout = Some((haul_id, self.wait_ticks));
                                             }
                                             Err(_) => {
                                                 debug_assert!(
@@ -186,7 +194,7 @@ impl Brain {
                 ));
 
                 // Do the haul yourself if it's been too long
-                if let Some((haul_id, ticks_left)) = waiting_on_haul_id.take() {
+                if let Some((haul_id, ticks_left)) = haul_wait_timeout.take() {
                     let haul_still_waiting = haul_notifications.check(haul_id);
                     if haul_still_waiting && ticks_left == 0 {
                         // Do it yourself:
@@ -198,7 +206,7 @@ impl Brain {
                         new_instrumental_goal = Some(Goal::Haul { description });
                     } else {
                         // Keep waiting:
-                        *waiting_on_haul_id = Some((haul_id, ticks_left - 1));
+                        *haul_wait_timeout = Some((haul_id, ticks_left - 1));
                     }
                 }
 
@@ -238,7 +246,7 @@ impl Brain {
                     HaulDescription {
                         resource,
                         destination,
-                        amount: needed_amount,
+                        amount: requested_amount,
                     },
             } => {
                 // Try to pick the resource from the current tile
@@ -252,12 +260,12 @@ impl Brain {
                                 let stockpile_amount =
                                     stockpile.get_resources_mut(*resource).unwrap();
                                 let picked_up =
-                                    (*needed_amount - picked_up_thus_far).min(*stockpile_amount);
+                                    (*requested_amount - picked_up_thus_far).min(*stockpile_amount);
                                 *stockpile_amount -= picked_up;
                                 picked_up_thus_far += picked_up;
                                 debug!("picked up {picked_up}x {resource:?}");
                             }
-                            if picked_up_thus_far >= *needed_amount {
+                            if picked_up_thus_far >= *requested_amount {
                                 break;
                             }
                         }
@@ -274,16 +282,16 @@ impl Brain {
                             if character.brain_index == current_brain_index {
                                 let mut current_amount =
                                     stockpile.get_resources(*resource).unwrap_or(0);
-                                if picked_up_thus_far > 0 && current_amount < *needed_amount {
+                                if picked_up_thus_far > 0 && current_amount < *requested_amount {
                                     let pocketed =
-                                        picked_up_thus_far.min(*needed_amount - current_amount);
+                                        picked_up_thus_far.min(*requested_amount - current_amount);
                                     debug!("adding {pocketed}x {resource:?} to my stockpile");
                                     stockpile.add_resource(*resource, pocketed).unwrap();
                                     stockpile.mark_reserved(*resource, true);
                                     picked_up_thus_far -= pocketed;
                                     current_amount += pocketed;
                                 }
-                                if current_amount >= *needed_amount {
+                                if current_amount >= *requested_amount {
                                     resources_acquired = true;
                                 }
                                 break;
@@ -318,7 +326,7 @@ impl Brain {
                 let mut drop_off = false;
                 if resources_acquired {
                     debug!(
-                        "brain {current_brain_index}: I have the needed {needed_amount}x {resource:?}"
+                        "brain {current_brain_index}: I have the needed {requested_amount}x {resource:?}"
                     );
                     let (from, to) = (current_position, destination.1);
                     if let Some(path) = find_path_to(from, to, walls, temp_arena) {
@@ -327,7 +335,7 @@ impl Brain {
                             goal_finished = true;
                         } else {
                             debug!("brain {current_brain_index}: bringing the stuff via {path:?}");
-                            self.goal_stack.push(Goal::FollowPath { from, path });
+                            new_instrumental_goal = Some(Goal::FollowPath { from, path });
                         }
                     } else {
                         debug!(
@@ -345,7 +353,7 @@ impl Brain {
                     scene.run_system(define_system!(
                         |_, positions: &[TilePosition], stockpiles: &[Stockpile]| {
                             for (pos, stockpile) in positions.iter().zip(stockpiles) {
-                                if *pos != current_position && stockpile.has_non_reserved_resources(*resource) {
+                                if stockpile.has_non_reserved_resources(*resource) {
                                     destinations.set(*pos, true);
                                     trace!("brain {current_brain_index}: found potential resource at: {pos:?}");
                                 }
@@ -369,7 +377,7 @@ impl Brain {
                         let _ = haul_notifications.notify(HaulDescription {
                             resource: *resource,
                             destination: *destination,
-                            amount: *needed_amount,
+                            amount: *requested_amount,
                         });
                     }
                 }
@@ -379,14 +387,58 @@ impl Brain {
                     debug!(
                         "brain {current_brain_index}: dropping off haul at {current_position:?}"
                     );
-                    todo!("drop off the haul (remember to un-reserve the resource variant)");
+
+                    let (dst_job, dst_pos) = *destination;
+
+                    // Add the resources to the job station's stockpile (if they fit)
+                    let mut dropped_off = 0;
+                    scene.run_system(define_system!(
+                        |_,
+                         job_stations: &[JobStationStatus],
+                         positions: &[TilePosition],
+                         stockpiles: &mut [Stockpile]| {
+                            for ((job_station, position), stockpile) in
+                                job_stations.iter().zip(positions).zip(stockpiles)
+                            {
+                                if job_station.variant == dst_job && *position == dst_pos {
+                                    let overflow = stockpile
+                                        .add_resource(*resource, *requested_amount)
+                                        .err()
+                                        .unwrap_or(0);
+                                    dropped_off += *requested_amount - overflow;
+                                    goal_finished = true;
+                                    break;
+                                }
+                            }
+                        }
+                    ));
+
+                    // Remove the dropped off amount from the hauler's stockpile
+                    // and mark it as non-reserved
+                    scene.run_system(define_system!(
+                        |_, characters: &[CharacterStatus], stockpiles: &mut [Stockpile]| {
+                            for (character, stockpile) in characters.iter().zip(stockpiles) {
+                                if character.brain_index == current_brain_index {
+                                    let hauled_res =
+                                        stockpile.get_resources_mut(*resource).unwrap();
+                                    *hauled_res -= dropped_off;
+                                    stockpile.mark_reserved(*resource, false);
+                                    break;
+                                }
+                            }
+                        }
+                    ));
+
+                    if !goal_finished {
+                        goal_not_acheivable = true;
+                    }
                 }
             }
 
             Goal::FollowPath { from, path } => {
                 if path.is_empty() {
                     debug!("brain {current_brain_index}: reached destination {from:?}");
-                    self.goal_stack.pop();
+                    goal_finished = true;
                 } else if current_position != *from {
                     let mut destination = *from;
                     let mut steps_progressed = None;
@@ -417,7 +469,7 @@ impl Brain {
                         );
                     } else {
                         // Strayed off the path, and can't find a new one, give up.
-                        self.goal_stack.pop();
+                        goal_not_acheivable = true;
                         debug!(
                             "brain {current_brain_index}: can't find destination {destination:?}"
                         );
@@ -426,9 +478,23 @@ impl Brain {
             }
         }
 
-        if goal_not_acheivable || goal_finished {
+        if goal_not_acheivable {
+            debug!(
+                "brain {current_brain_index}: giving up on {:?}",
+                self.goal_stack.last()
+            );
+            self.goal_stack.pop();
+        } else if goal_finished {
+            debug!(
+                "brain {current_brain_index}: finished {:?}",
+                self.goal_stack.last()
+            );
             self.goal_stack.pop();
         } else if let Some(new_instrumental_goal) = new_instrumental_goal {
+            debug!(
+                "brain {current_brain_index}: doing {new_instrumental_goal:?} first to be able to do {:?}",
+                self.goal_stack.last(),
+            );
             self.goal_stack.push(new_instrumental_goal);
         }
     }

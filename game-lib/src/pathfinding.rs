@@ -3,7 +3,7 @@ use core::{
     ops::{Add, Neg},
 };
 
-use arrayvec::{ArrayString, ArrayVec};
+use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
 use engine::{allocators::LinearAllocator, collections::FixedVec};
 use glam::I16Vec2;
@@ -149,31 +149,6 @@ impl Add<Direction> for TilePosition {
             Direction::Down => TilePosition(self.0.add(I16Vec2::new(0, 1))),
             Direction::Left => TilePosition(self.0.add(I16Vec2::new(-1, 0))),
             Direction::Right => TilePosition(self.0.add(I16Vec2::new(1, 0))),
-        }
-    }
-}
-
-impl TilePosition {
-    /// Returns the direction of `self` from the perspective of `from`.
-    ///
-    /// If they differ on both the X and Y axis, the larger difference will pick
-    /// the distance. If the difference is diagonal, the direction on the X axis
-    /// is returned.
-    pub const fn direction_from(self, from: TilePosition) -> Option<Direction> {
-        let dx = self.0.x - from.0.x;
-        let dy = self.0.y - from.0.y;
-        if dx == 0 && dy == 0 {
-            None
-        } else if dx.abs() > dy.abs() {
-            if dx > 0 {
-                Some(Direction::Right)
-            } else {
-                Some(Direction::Left)
-            }
-        } else if dy > 0 {
-            Some(Direction::Down)
-        } else {
-            Some(Direction::Up)
         }
     }
 }

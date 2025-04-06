@@ -36,13 +36,6 @@ impl<T: Zeroable> Grid<'_, T> {
     pub const fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
-
-    pub const fn in_bounds(&self, pos: TilePosition) -> bool {
-        pos.0.x >= 0
-            && pos.0.y >= 0
-            && (pos.0.x as usize) < self.width
-            && (pos.0.y as usize) < self.height
-    }
 }
 
 impl<T> Index<TilePosition> for Grid<'_, T> {

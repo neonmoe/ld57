@@ -32,6 +32,7 @@ use grid::BitGrid;
 use notifications::NotificationSet;
 use platform::{Instant, Platform};
 use tilemap::Tilemap;
+use tracing::debug;
 
 const MAX_CHARACTERS: usize = 10;
 
@@ -154,8 +155,17 @@ impl Game {
             let on_move_tick = self.current_tick % 30 == 0;
             let on_work_tick = self.current_tick % 30 == 10 || self.current_tick % 30 == 20;
 
-            let workers: FixedVec<'_, (JobStationVariant, TilePosition)> = FixedVec::empty();
-            // TODO: add an entry for each character whose brain is currently in Goal::Work
+            let mut workers = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS).unwrap();
+            self.scene.run_system(define_system!(
+                |_, characters: &[CharacterStatus], positions: &[TilePosition]| {
+                    for (character, pos) in characters.iter().zip(positions) {
+                        if let Some(job) = self.brains[character.brain_index].current_job() {
+                            let could_record_worker = workers.push((job, *pos));
+                            debug_assert!(could_record_worker.is_ok());
+                        }
+                    }
+                }
+            ));
 
             // Move all characters who are currently following a path
             if on_move_tick {
@@ -182,20 +192,26 @@ impl Game {
                             jobs.iter_mut().zip(stockpiles).zip(positions)
                         {
                             for (worker_job, worker_position) in workers.iter() {
-                                if job.variant == *worker_job
-                                    && worker_position.manhattan_distance(**pos) < 2
-                                {
+                                if job.variant == *worker_job && worker_position == pos {
                                     if let Some(details) = job.details() {
                                         let resources =
                                             stockpile.get_resources_mut(details.resource_variant);
-                                        let current_amount = resources.map(|a| *a).unwrap_or(0);
+                                        let current_amount =
+                                            resources.as_ref().map(|a| **a).unwrap_or(0);
                                         if current_amount >= details.resource_amount {
                                             job.work_invested += 1;
                                             if job.work_invested >= details.work_amount {
                                                 job.work_invested -= details.work_amount;
+                                                if let Some(resources) = resources {
+                                                    *resources -= details.resource_amount;
+                                                }
                                                 stockpile.insert_resource(
                                                     details.output_variant,
                                                     details.output_amount,
+                                                );
+                                                debug!(
+                                                    "produced {}x {:?} at {pos:?}",
+                                                    details.output_amount, details.output_variant
                                                 );
                                             }
                                         }
