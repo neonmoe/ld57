@@ -69,7 +69,6 @@ impl Game {
         brains.push(Brain::new()).unwrap();
         brains.push(Brain::new()).unwrap();
         brains[0].job = Occupation::Operator(JobStationVariant::ENERGY_GENERATOR);
-        brains[0].wait_ticks = 1000;
         brains[1].job = Occupation::Hauler;
 
         let haul_notifications = NotificationSet::new(arena, 128).unwrap();

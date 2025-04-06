@@ -66,7 +66,7 @@ impl Brain {
             goal_stack: ArrayVec::new(),
             job: Occupation::Idle,
             max_haul_amount: 2,
-            wait_ticks: 300,
+            wait_ticks: 30,
         }
     }
 
@@ -248,14 +248,20 @@ impl Brain {
                 // Do the haul yourself if it's been too long
                 if let Some((haul_id, ticks_left)) = haul_wait_timeout.take() {
                     let haul_still_waiting = haul_notifications.check(haul_id);
-                    if haul_still_waiting && ticks_left == 0 {
-                        // Do it yourself:
-                        let description = haul_notifications.remove(haul_id).unwrap();
-                        debug!(
-                            "tired of waiting, hauling {}x {:?} myself",
-                            description.amount, description.resource,
-                        );
-                        new_instrumental_goal = Some(Goal::Haul { description });
+                    if ticks_left == 0 {
+                        if haul_still_waiting {
+                            // Do it yourself:
+                            let description = haul_notifications.remove(haul_id).unwrap();
+                            debug!(
+                                "tired of waiting, hauling {}x {:?} myself",
+                                description.amount, description.resource,
+                            );
+                            new_instrumental_goal = Some(Goal::Haul { description });
+                        } else {
+                            debug!(
+                                "someone picked up the haul job, continuing work on the next tick",
+                            );
+                        }
                     } else {
                         // Keep waiting:
                         *haul_wait_timeout = Some((haul_id, ticks_left - 1));
