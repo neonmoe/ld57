@@ -2,7 +2,7 @@ use core::ops::Deref;
 
 use bytemuck::{Pod, Zeroable};
 use engine::impl_game_object;
-use glam::{I16Vec2, IVec2};
+use glam::I16Vec2;
 
 // Game objects
 

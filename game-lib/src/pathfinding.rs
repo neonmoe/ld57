@@ -1,25 +1,32 @@
-use core::{
-    num::NonZeroU8,
-    ops::{Add, Neg, Sub},
-};
+use core::ops::{Add, Neg};
 
 use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
 use engine::{allocators::LinearAllocator, collections::FixedVec};
 use glam::I16Vec2;
 
-use crate::{game_object::TilePosition, grid::Grid};
+use crate::{
+    game_object::TilePosition,
+    grid::{BitGrid, Grid},
+};
 
-pub fn find_path(
+pub fn find_path_to(
     from: TilePosition,
     to: TilePosition,
-    is_not_walkable: Grid<bool>,
+    is_not_walkable: BitGrid,
     temp_arena: &LinearAllocator,
 ) -> Option<Path> {
-    if is_not_walkable[to] {
-        return None;
-    }
+    let mut destinations = BitGrid::new(temp_arena, is_not_walkable.size())?;
+    destinations.set(to, true);
+    find_path_to_any(from, destinations, is_not_walkable, temp_arena)
+}
 
+pub fn find_path_to_any(
+    from: TilePosition,
+    destinations: BitGrid,
+    is_not_walkable: BitGrid,
+    temp_arena: &LinearAllocator,
+) -> Option<Path> {
     let perimeter = is_not_walkable.width() * 2 + is_not_walkable.height() * 2;
     let mut try_positions: FixedVec<TilePosition> = FixedVec::new(temp_arena, perimeter)?;
     let mut shortest_distance_to_pos: Grid<u8> =
@@ -41,19 +48,15 @@ pub fn find_path(
             }
         }
 
-        // Backtrack and finish if we could step to the target from this
-        // position.
-        if try_pos.manhattan_distance(*to) == 1 {
+        // Backtrack and finish if this is a valid destination (and walkable).
+        if destinations.get(try_pos) && !is_not_walkable.get(try_pos) {
             let mut path_to_start = Path::default();
-            path_to_start.add_step(try_pos.direction_from(to).unwrap());
-
             let mut path_end = try_pos;
             while path_end != from && !path_to_start.is_full() {
                 let dir = step_to_previous_in_path[path_end];
                 path_end = path_end + dir;
                 path_to_start.add_step(dir);
             }
-
             if path_end == from {
                 return Some(path_to_start.reverse());
             } else {
@@ -72,7 +75,7 @@ pub fn find_path(
             }
 
             let neighbor = try_pos + dir;
-            if is_not_walkable.in_bounds(neighbor) && !is_not_walkable[neighbor] {
+            if is_not_walkable.in_bounds(neighbor) && !is_not_walkable.get(neighbor) {
                 let could_add_neighbor = try_positions.push(neighbor);
                 debug_assert!(could_add_neighbor.is_ok());
                 shortest_distance_to_pos[neighbor] = try_pos_distance + 1;
@@ -288,8 +291,8 @@ mod tests {
 
     use crate::{
         game_object::TilePosition,
-        grid::Grid,
-        pathfinding::{Direction, Path, find_path},
+        grid::BitGrid,
+        pathfinding::{Direction, Path, find_path_to},
     };
 
     #[test]
@@ -309,14 +312,14 @@ mod tests {
         expected_path.add_step(Direction::Up);
 
         static ARENA: &LinearAllocator = static_allocator!(1000);
-        let mut map: Grid<bool> = Grid::new_zeroed(ARENA, (5, 4)).unwrap();
-        map[(1, 1)] = true;
-        map[(1, 2)] = true;
-        map[(3, 1)] = true;
-        map[(3, 2)] = true;
-        map[(4, 1)] = true;
+        let mut map = BitGrid::new(ARENA, (5, 4)).unwrap();
+        map.set(TilePosition::new(1, 1), true);
+        map.set(TilePosition::new(1, 2), true);
+        map.set(TilePosition::new(3, 1), true);
+        map.set(TilePosition::new(3, 2), true);
+        map.set(TilePosition::new(4, 1), true);
 
-        let path = find_path(TilePosition::new(0, 1), TilePosition::new(4, 2), map, ARENA);
+        let path = find_path_to(TilePosition::new(0, 1), TilePosition::new(4, 2), map, ARENA);
         assert!(path.is_some(), "should be able to find the way");
         assert_eq!(
             expected_path.len(),

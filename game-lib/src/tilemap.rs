@@ -12,7 +12,7 @@ use engine::{
 use glam::{USizeVec2, Vec2};
 use libm::{ceilf, cosf, floorf, sinf};
 
-use crate::{DrawLayer, camera::Camera, game_object::TilePosition, grid::Grid};
+use crate::{DrawLayer, camera::Camera, grid::Grid};
 
 #[derive(Clone, Copy, Debug, Zeroable)]
 #[repr(u8)]

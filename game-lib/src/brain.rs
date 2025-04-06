@@ -4,9 +4,7 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
-use engine::{
-    allocators::LinearAllocator, collections::FixedVec, define_system, game_objects::Scene,
-};
+use engine::{define_system, game_objects::Scene};
 use platform::Instant;
 
 use crate::{
