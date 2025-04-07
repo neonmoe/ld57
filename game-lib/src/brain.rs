@@ -17,7 +17,7 @@ use crate::{
     },
     grid::BitGrid,
     notifications::{NotificationId, NotificationSet},
-    pathfinding::{Path, find_path_to, find_path_to_any},
+    pathfinding::{Direction, Path, find_path_to, find_path_to_any},
 };
 
 pub const MAX_GOALS: usize = 8;
@@ -136,9 +136,9 @@ impl Brain {
         }
     }
 
-    pub fn next_move_position(&self) -> Option<TilePosition> {
-        if let Some(Goal::FollowPath { from, path }) = self.goal_stack.last() {
-            Some(*from + path.into_iter().next()?)
+    pub fn next_move_direction(&self) -> Option<Direction> {
+        if let Some(Goal::FollowPath { path, .. }) = self.goal_stack.last() {
+            Some(path.into_iter().next()?)
         } else {
             None
         }

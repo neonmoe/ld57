@@ -5,7 +5,7 @@ use core::{
 
 use arrayvec::ArrayVec;
 use bytemuck::Zeroable;
-use engine::{allocators::LinearAllocator, collections::FixedVec};
+use engine::{allocators::LinearAllocator, collections::Queue};
 use glam::I16Vec2;
 
 use crate::{
@@ -44,34 +44,25 @@ pub fn find_path_to_any(
         return Some(Path::default());
     }
 
-    let mut try_positions: FixedVec<TilePosition> =
-        FixedVec::new(temp_arena, walls.width() * walls.height())?;
+    let mut try_positions: Queue<TilePosition> =
+        Queue::new(temp_arena, walls.width() * walls.height())?;
     let mut shortest_distance_to_pos: Grid<u8> = Grid::new_zeroed(temp_arena, walls.size())?;
     let mut step_to_previous_in_path: Grid<Direction> = Grid::new_zeroed(temp_arena, walls.size())?;
 
-    let _ = try_positions.push(from);
+    let _ = try_positions.push_back(from);
     shortest_distance_to_pos[from] = 1;
-    while !try_positions.is_empty() {
-        // Find the nearest position to try
-        let mut try_pos_index = 0;
-        let mut try_pos = try_positions[try_pos_index];
-        let mut try_pos_distance = shortest_distance_to_pos[try_pos];
-        for (i, other) in try_positions.iter().enumerate().skip(1) {
-            let dist = shortest_distance_to_pos[*other];
-            if dist < try_pos_distance {
-                try_pos_distance = dist;
-                try_pos = *other;
-                try_pos_index = i;
-            }
-        }
 
-        // Remove this position from the list
-        let last_index = try_positions.len() - 1;
-        try_positions.swap(try_pos_index, last_index);
-        try_positions.truncate(last_index);
-
+    // The first one at the front of the queue should always be one of the
+    // shortest paths, since every step only costs 1, and longer paths are
+    // always pushed to the back of the queue.
+    while let Some(try_pos) = try_positions.pop_front() {
         // Try neighbors
-        for dir in Direction::ALL_DIRECTIONS {
+        for dir in [
+            Direction::Up,
+            Direction::Down,
+            Direction::Right,
+            Direction::Left,
+        ] {
             let neighbor = try_pos + dir;
             if !walls.in_bounds(neighbor) || shortest_distance_to_pos[neighbor] != 0 {
                 continue; // Oout of bounds or already been there
@@ -79,9 +70,9 @@ pub fn find_path_to_any(
 
             let can_walk = !walls.get(neighbor);
             if can_walk {
-                let could_add_neighbor = try_positions.push(neighbor);
+                let could_add_neighbor = try_positions.push_back(neighbor);
                 debug_assert!(could_add_neighbor.is_ok());
-                shortest_distance_to_pos[neighbor] = try_pos_distance + 1;
+                shortest_distance_to_pos[neighbor] = shortest_distance_to_pos[try_pos] + 1;
                 step_to_previous_in_path[neighbor] = -dir;
             }
 
@@ -117,13 +108,6 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub const ALL_DIRECTIONS: [Direction; 4] = [
-        Direction::Up,
-        Direction::Down,
-        Direction::Left,
-        Direction::Right,
-    ];
-
     const fn to_u8(self) -> u8 {
         match self {
             Direction::Up => 0b00,
@@ -139,6 +123,15 @@ impl Direction {
             0b01 => Direction::Down,
             0b10 => Direction::Left,
             _ => Direction::Right,
+        }
+    }
+
+    pub const fn next_clockwise(self) -> Direction {
+        match self {
+            Direction::Up => Direction::Right,
+            Direction::Down => Direction::Left,
+            Direction::Left => Direction::Up,
+            Direction::Right => Direction::Down,
         }
     }
 }

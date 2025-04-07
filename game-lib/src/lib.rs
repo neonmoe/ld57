@@ -473,6 +473,10 @@ impl Game {
             }
             self.current_tick += 1;
 
+            let on_move_tick = self.current_tick % 3 == 0;
+            let on_work_tick = self.current_tick % 2 == 0;
+            let on_oxygen_and_morale_tick = self.current_tick % 100 == 0;
+
             // Each tick can reuse the entire frame arena, since it's such a top level thing
             engine.frame_arena.reset();
 
@@ -500,6 +504,34 @@ impl Game {
                 }
             }
 
+            // Move all characters who are currently following a path
+            // (specifically before the think tick, and updating the walls, so
+            // that other characters can reroute based on the new position).
+            if on_move_tick {
+                self.scene.run_system(define_system!(
+                    |_, characters: &[CharacterStatus], positions: &mut [TilePosition]| {
+                        'next_char: for (character, pos) in characters.iter().zip(positions) {
+                            let brain = &mut self.brains[character.brain_index as usize];
+                            if let Some(dir) = brain.next_move_direction() {
+                                let mut new_pos = *pos + dir;
+                                let mut backup_dir = dir.next_clockwise();
+                                while walls.get(new_pos) {
+                                    new_pos = *pos + backup_dir;
+                                    backup_dir = backup_dir.next_clockwise();
+                                    if backup_dir == dir {
+                                        // Walls in all directions, can't do much about that.
+                                        continue 'next_char;
+                                    }
+                                }
+                                walls.set(*pos, false);
+                                walls.set(new_pos, true);
+                                *pos = new_pos;
+                            }
+                        }
+                    }
+                ));
+            }
+
             // Run the think tick for the brains
             if let Some(mut brains_to_think) = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS) {
                 self.scene.run_system(define_system!(
@@ -522,10 +554,6 @@ impl Game {
                 }
             }
 
-            let on_move_tick = self.current_tick % 3 == 0;
-            let on_work_tick = self.current_tick % 2 == 0;
-            let on_oxygen_and_morale_tick = self.current_tick % 100 == 0;
-
             // Set up this tick's working worker information
             let mut workers = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS).unwrap();
             self.scene.run_system(define_system!(
@@ -539,22 +567,6 @@ impl Game {
                     }
                 }
             ));
-
-            // Move all characters who are currently following a path
-            if on_move_tick {
-                self.scene.run_system(define_system!(
-                    |_, characters: &[CharacterStatus], positions: &mut [TilePosition]| {
-                        for (character, pos) in characters.iter().zip(positions) {
-                            let brain = &self.brains[character.brain_index as usize];
-                            if let Some(new_pos) = brain.next_move_position() {
-                                if !walls.get(new_pos) {
-                                    *pos = new_pos;
-                                }
-                            }
-                        }
-                    }
-                ));
-            }
 
             // Update oxygen and morale for all characters
             if on_oxygen_and_morale_tick {
