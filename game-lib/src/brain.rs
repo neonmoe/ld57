@@ -40,6 +40,10 @@ enum Goal {
         from: TilePosition,
         path: Path,
     },
+    Relax {
+        relax_start_tick: GameTicks,
+        walk_aabb: (TilePosition, TilePosition),
+    },
     // TODO: Add a goal or another way to "stop" a character while an animation
     // or notification effect is happening (maybe an Animatable component or
     // something?)
@@ -58,6 +62,8 @@ pub struct Brain {
     pub job: Occupation,
     pub max_haul_amount: u8,
     pub wait_ticks: GameTicks,
+    pub ticks_without_goal: GameTicks,
+    pub has_relaxed: bool,
 }
 
 impl Brain {
@@ -67,6 +73,8 @@ impl Brain {
             job: Occupation::Idle,
             max_haul_amount: 2,
             wait_ticks: 30,
+            ticks_without_goal: 0,
+            has_relaxed: false,
         }
     }
 
@@ -88,7 +96,7 @@ impl Brain {
 
     pub fn update_goals(
         &mut self,
-        (current_brain_index, current_position): (u8, TilePosition),
+        (current_brain_index, current_position, current_tick): (u8, TilePosition, GameTicks),
         scene: &mut Scene,
         haul_notifications: &mut NotificationSet<HaulDescription>,
         walls: &BitGrid,
@@ -96,6 +104,18 @@ impl Brain {
     ) {
         let span = tracing::info_span!("", current_brain_index);
         let _enter = span.enter();
+
+        let mut hashed_bytes = ArrayVec::<u8, 13>::new();
+        for bytes in [
+            &[current_brain_index][..],
+            &current_position.x.to_le_bytes()[..],
+            &current_position.y.to_le_bytes()[..],
+            &current_tick.to_le_bytes()[..],
+        ] {
+            let result = hashed_bytes.try_extend_from_slice(bytes);
+            debug_assert!(result.is_ok());
+        }
+        let rand = seahash::hash(&hashed_bytes);
 
         let mut current_status = CharacterStatus::zeroed();
         scene.run_system(define_system!(|_, characters: &[CharacterStatus]| {
@@ -112,12 +132,11 @@ impl Brain {
             // TODO: display/animate running out of oxygen
             return;
         }
+        let demoralized = current_status.morale <= CharacterStatus::DEMORALIZED_THRESHOLD;
 
         // This branch picks something player-defined to do (occupation-based
         // goal setting), so it's not ran when on low morale.
-        if self.goal_stack.is_empty()
-            && current_status.morale > CharacterStatus::DEMORALIZED_THRESHOLD
-        {
+        if self.goal_stack.is_empty() && !demoralized {
             match self.job {
                 Occupation::Idle => {
                     // Idling!
@@ -199,7 +218,23 @@ impl Brain {
         temp_arena.reset();
 
         if self.goal_stack.is_empty() {
-            // Nothing useful to do
+            if self.ticks_without_goal >= self.wait_ticks || demoralized {
+                self.goal_stack.push(Goal::Relax {
+                    relax_start_tick: current_tick,
+                    walk_aabb: (
+                        TilePosition::new(
+                            current_position.x.saturating_sub(5),
+                            current_position.y.saturating_sub(5),
+                        ),
+                        TilePosition::new(
+                            (current_position.x.saturating_add(5)).min(walls.width() as i16 - 1),
+                            (current_position.y.saturating_add(5)).min(walls.height() as i16 - 1),
+                        ),
+                    ),
+                });
+            } else {
+                self.ticks_without_goal += 1;
+            }
         }
 
         let mut new_instrumental_goal = None;
@@ -555,6 +590,29 @@ impl Brain {
                         // Strayed off the path, and can't find a new one, give up.
                         goal_not_acheivable = true;
                         debug!("can't find destination {destination:?}");
+                    }
+                }
+            }
+
+            Goal::Relax {
+                relax_start_tick,
+                walk_aabb,
+            } => {
+                debug!("relaxing!");
+                self.has_relaxed = true;
+                if *relax_start_tick > current_tick {
+                    // Started relaxing earlier, and ended up back at this goal,
+                    // so call it finished. If there's nothing useful to do (or
+                    // morale is low), the next tick's goal will be relax again.
+                    goal_finished = true;
+                } else {
+                    // Try to find a spot to walk to:
+                    let x = (rand >> 32) % walk_aabb.0.x.abs_diff(walk_aabb.1.x) as u64;
+                    let y = (rand >> 32) % walk_aabb.0.y.abs_diff(walk_aabb.1.y) as u64;
+                    let dst = TilePosition::new(x as i16, y as i16);
+                    let from = current_position;
+                    if let Some(path) = find_path_to(from, dst, true, walls, temp_arena) {
+                        self.goal_stack.push(Goal::FollowPath { from, path });
                     }
                 }
             }

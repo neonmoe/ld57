@@ -194,6 +194,7 @@ impl Game {
                 morale: CharacterStatus::MAX_MORALE - 1,
                 oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
                 morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT,
             },
             position: TilePosition::new(5, 1),
             held: Stockpile::zeroed(),
@@ -207,7 +208,8 @@ impl Game {
                 oxygen: CharacterStatus::MAX_OXYGEN - 2,
                 morale: CharacterStatus::MAX_MORALE,
                 oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
-                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT + 2,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT + 2,
             },
             position: TilePosition::new(6, 4),
             held: Stockpile::zeroed(),
@@ -362,7 +364,7 @@ impl Game {
 
                 for (brain_idx, pos) in &mut *brains_to_think {
                     self.brains[*brain_idx as usize].update_goals(
-                        (*brain_idx, *pos),
+                        (*brain_idx, *pos, self.current_tick),
                         &mut self.scene,
                         &mut self.haul_notifications,
                         &walls,
@@ -404,15 +406,23 @@ impl Game {
                 ));
             }
 
-            // Decrement oxygen and morale for all characters
+            // Update oxygen and morale for all characters
             if on_oxygen_and_morale_tick {
                 self.scene
                     .run_system(define_system!(|_, characters: &mut [CharacterStatus]| {
                         for character in characters {
+                            let brain = &mut self.brains[character.brain_index as usize];
                             character.oxygen = (character.oxygen)
                                 .saturating_sub(character.oxygen_depletion_amount);
-                            character.morale = (character.morale)
-                                .saturating_sub(character.morale_depletion_amount);
+                            if brain.has_relaxed {
+                                character.morale = (character.morale)
+                                    .saturating_add(character.morale_relaxing_increment)
+                                    .min(CharacterStatus::MAX_MORALE);
+                                brain.has_relaxed = false;
+                            } else {
+                                character.morale = (character.morale)
+                                    .saturating_sub(character.morale_depletion_amount);
+                            }
                         }
                     }));
             }

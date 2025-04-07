@@ -67,6 +67,7 @@ pub struct CharacterStatus {
     pub oxygen_depletion_amount: u8,
     pub morale: u8,
     pub morale_depletion_amount: u8,
+    pub morale_relaxing_increment: u8,
 }
 impl CharacterStatus {
     pub const MAX_OXYGEN: u8 = 24;
@@ -74,6 +75,7 @@ impl CharacterStatus {
     pub const MAX_MORALE: u8 = 24;
     pub const DEMORALIZED_THRESHOLD: u8 = 9;
     pub const BASE_MORALE_DEPLETION_AMOUNT: u8 = 3;
+    pub const BASE_MORALE_RELAXING_INCREMENT: u8 = 3;
 }
 
 #[derive(Clone, Copy, Debug, Zeroable, Pod)]
