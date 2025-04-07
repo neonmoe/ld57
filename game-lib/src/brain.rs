@@ -10,15 +10,17 @@ use engine::{
 use tracing::{debug, trace};
 
 use crate::{
-    GameTicks,
+    GameTicks, Sprite,
     game_object::{
-        CharacterStatus, JobStationStatus, JobStationVariant, Resource, ResourceVariant, Stockpile,
-        StockpileReliantTag, TilePosition,
+        CharacterStatus, JobStationStatus, JobStationVariant, Personality, Resource,
+        ResourceVariant, Stockpile, StockpileReliantTag, TilePosition,
     },
     grid::BitGrid,
     notifications::{NotificationId, NotificationSet},
     pathfinding::{Path, find_path_to, find_path_to_any},
 };
+
+pub const MAX_GOALS: usize = 8;
 
 #[derive(Debug)]
 pub struct HaulDescription {
@@ -28,7 +30,7 @@ pub struct HaulDescription {
 }
 
 #[derive(Debug)]
-enum Goal {
+pub enum Goal {
     Work {
         haul_wait_timeout: Option<(NotificationId, GameTicks)>,
         job: JobStationVariant,
@@ -49,6 +51,20 @@ enum Goal {
     // something?)
 }
 
+impl Goal {
+    pub fn sprite(&self, personality: Personality) -> Option<Sprite> {
+        match self {
+            Goal::Work { .. } => Some(Sprite::GoalWork),
+            Goal::Haul { .. } => Some(Sprite::GoalHaul),
+            Goal::FollowPath { .. } => None,
+            Goal::Relax { .. } if personality.contains(Personality::KAOMOJI) => {
+                Some(Sprite::GoalRelaxAlt)
+            }
+            Goal::Relax { .. } => Some(Sprite::GoalRelax),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Occupation {
     Idle,
@@ -56,9 +72,25 @@ pub enum Occupation {
     Operator(JobStationVariant),
 }
 
+impl Occupation {
+    pub fn sprite(&self, _personality: Personality) -> Option<Sprite> {
+        match self {
+            Occupation::Idle => Some(Sprite::OccupationIdle),
+            Occupation::Hauler => Some(Sprite::OccupationHauler),
+            Occupation::Operator(JobStationVariant::ENERGY_GENERATOR) => {
+                Some(Sprite::OccupationWorkEnergy)
+            }
+            Occupation::Operator(JobStationVariant::OXYGEN_GENERATOR) => {
+                Some(Sprite::OccupationWorkOxygen)
+            }
+            Occupation::Operator(_) => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Brain {
-    goal_stack: ArrayVec<Goal, 8>,
+    pub goal_stack: ArrayVec<Goal, MAX_GOALS>,
     pub job: Occupation,
     pub max_haul_amount: u8,
     pub wait_ticks: GameTicks,
@@ -134,8 +166,8 @@ impl Brain {
         }
         let demoralized = current_status.morale <= CharacterStatus::DEMORALIZED_THRESHOLD;
 
-        // This branch picks something player-defined to do (occupation-based
-        // goal setting), so it's not ran when on low morale.
+        // This branch picks something occupation-based to do, so it's not ran
+        // when on low morale.
         if self.goal_stack.is_empty() && !demoralized {
             match self.job {
                 Occupation::Idle => {
@@ -249,6 +281,10 @@ impl Brain {
                 haul_wait_timeout,
                 job,
             } => {
+                if demoralized {
+                    goal_not_acheivable = true;
+                }
+
                 // See if we're ready to work, request resources if needed
                 // (the actual work is done in work ticks upstream)
                 let mut within_working_distance = false;
@@ -600,7 +636,7 @@ impl Brain {
             } => {
                 debug!("relaxing!");
                 self.has_relaxed = true;
-                if *relax_start_tick > current_tick {
+                if *relax_start_tick != current_tick {
                     // Started relaxing earlier, and ended up back at this goal,
                     // so call it finished. If there's nothing useful to do (or
                     // morale is low), the next tick's goal will be relax again.
@@ -612,7 +648,7 @@ impl Brain {
                     let dst = TilePosition::new(x as i16, y as i16);
                     let from = current_position;
                     if let Some(path) = find_path_to(from, dst, true, walls, temp_arena) {
-                        self.goal_stack.push(Goal::FollowPath { from, path });
+                        new_instrumental_goal = Some(Goal::FollowPath { from, path });
                     }
                 }
             }
@@ -631,7 +667,9 @@ impl Brain {
                 "doing {new_instrumental_goal:?} first to be able to do {:?}",
                 self.goal_stack.last(),
             );
-            self.goal_stack.push(new_instrumental_goal);
+            if self.goal_stack.try_push(new_instrumental_goal).is_err() {
+                self.goal_stack.clear(); // reconsider everything
+            }
         }
     }
 }

@@ -59,6 +59,76 @@
       "command": "add_sprite",
       "name": "Magma",
       "file": "resources/sprites/magma.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Pass",
+      "file": "resources/sprites/pass.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Number1",
+      "file": "resources/sprites/number1.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Number2",
+      "file": "resources/sprites/number2.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Number3",
+      "file": "resources/sprites/number3.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Number4",
+      "file": "resources/sprites/number4.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Number5",
+      "file": "resources/sprites/number5.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "GoalRelax",
+      "file": "resources/sprites/goal-relax.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "GoalRelaxAlt",
+      "file": "resources/sprites/goal-relax-alt.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "GoalHaul",
+      "file": "resources/sprites/goal-haul.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "GoalWork",
+      "file": "resources/sprites/goal-work.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "OccupationIdle",
+      "file": "resources/sprites/occupation-idle.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "OccupationHauler",
+      "file": "resources/sprites/occupation-hauler.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "OccupationWorkEnergy",
+      "file": "resources/sprites/occupation-work-at-energy-generator.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "OccupationWorkOxygen",
+      "file": "resources/sprites/occupation-work-at-oxygen-generator.png"
     }
   ]
 }

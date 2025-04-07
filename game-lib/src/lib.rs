@@ -24,12 +24,14 @@ use engine::{
     input::{ActionKind, ActionState, InputDeviceState},
     renderer::DrawQueue,
     resources::{
-        ResourceDatabase, ResourceLoader, audio_clip::AudioClipHandle, sprite::SpriteHandle,
+        ResourceDatabase, ResourceLoader,
+        audio_clip::AudioClipHandle,
+        sprite::{SpriteAsset, SpriteHandle},
     },
 };
 use game_object::{
     Character, CharacterStatus, Collider, JobStation, JobStationStatus, JobStationVariant,
-    Resource, ResourceVariant, Stockpile, StockpileReliantTag, TilePosition,
+    Personality, Resource, ResourceVariant, Stockpile, StockpileReliantTag, TilePosition,
 };
 use glam::Vec2;
 use grid::BitGrid;
@@ -46,12 +48,18 @@ pub const MILLIS_PER_TICK: u64 = 100;
 #[derive(Clone, Copy)]
 #[repr(u8)]
 enum DrawLayer {
+    // The map
     Tilemap,
+    // Game objects
     LooseStockpiles,
     CharacterSuits,
     CharacterHelmets,
     JobStationStockpiles,
     CarriedStockpiles,
+    // UI
+    Passes,
+    PassInformation,
+    PassGoalPile,
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +76,15 @@ enum Sprite {
     Suit,
     Energy,
     Magma,
+    Pass,
+    GoalRelax,
+    GoalRelaxAlt,
+    GoalHaul,
+    GoalWork,
+    OccupationIdle,
+    OccupationHauler,
+    OccupationWorkEnergy,
+    OccupationWorkOxygen,
     _Count,
 }
 
@@ -156,6 +173,7 @@ fn create_action_bindings(
 pub struct Game {
     tilemap: Tilemap<'static>,
     camera: Camera,
+    ui_camera: Camera,
     scene: Scene<'static>,
     brains: FixedVec<'static, Brain>,
     haul_notifications: NotificationSet<'static, HaulDescription>,
@@ -163,6 +181,7 @@ pub struct Game {
     next_tick_time: Instant,
     last_frame_timestamp: Instant,
     sprites: ArrayVec<SpriteHandle, { Sprite::_Count as usize }>,
+    number_sprites: ArrayVec<SpriteHandle, 5>,
     music_clips: ArrayVec<AudioClipHandle, 4>,
     last_music_clip_start: Instant,
     flip_confirm_cancel: bool,
@@ -195,6 +214,7 @@ impl Game {
                 oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
                 morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
                 morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT,
+                personality: Personality::zeroed(),
             },
             position: TilePosition::new(5, 1),
             held: Stockpile::zeroed(),
@@ -210,6 +230,7 @@ impl Game {
                 oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
                 morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT + 2,
                 morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT + 2,
+                personality: Personality::KAOMOJI,
             },
             position: TilePosition::new(6, 4),
             held: Stockpile::zeroed(),
@@ -246,6 +267,11 @@ impl Game {
                 size: Vec2::ZERO,
                 output_size: Vec2::ZERO,
             },
+            ui_camera: Camera {
+                position: Vec2::ZERO,
+                size: Vec2::ZERO,
+                output_size: Vec2::ZERO,
+            },
             scene,
             brains,
             haul_notifications,
@@ -254,12 +280,35 @@ impl Game {
             last_frame_timestamp: platform.now(),
             sprites: {
                 use Sprite::*;
-                let sprite_enums: [Sprite; Sprite::_Count as usize] =
-                    [Placeholder, Helmet, Suit, Energy, Magma];
+                let sprite_enums: [Sprite; Sprite::_Count as usize] = [
+                    Placeholder,
+                    Helmet,
+                    Suit,
+                    Energy,
+                    Magma,
+                    Pass,
+                    GoalRelax,
+                    GoalRelaxAlt,
+                    GoalHaul,
+                    GoalWork,
+                    OccupationIdle,
+                    OccupationHauler,
+                    OccupationWorkEnergy,
+                    OccupationWorkOxygen,
+                ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
                     let mut name = ArrayString::<27>::new();
                     let _ = write!(&mut name, "{sprite:?}");
+                    sprites.push(engine.resource_db.find_sprite(&name).unwrap());
+                }
+                sprites
+            },
+            number_sprites: {
+                let mut sprites = ArrayVec::new();
+                for n in 1..=5 {
+                    let mut name = ArrayString::<27>::new();
+                    let _ = write!(&mut name, "Number{n}");
                     sprites.push(engine.resource_db.find_sprite(&name).unwrap());
                 }
                 sprites
@@ -518,6 +567,8 @@ impl Game {
         let aspect_ratio = draw_width / draw_height;
         self.camera.output_size = Vec2::new(draw_width, draw_height);
         self.camera.size = Vec2::new(aspect_ratio * 16., 16.);
+        self.ui_camera.output_size = self.camera.output_size;
+        self.ui_camera.size = self.camera.size;
 
         let mut draw_queue = DrawQueue::new(&engine.frame_arena, 10_000, draw_scale).unwrap();
 
@@ -592,7 +643,7 @@ impl Game {
             }
         ));
 
-        // Characters
+        // Characters on the map
         let helmet_sprite = engine
             .resource_db
             .get_sprite(self.sprites[Sprite::Helmet as usize]);
@@ -635,6 +686,105 @@ impl Game {
                 }
             }
         ));
+
+        // Character passes for status
+        let pass_sprite = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::Pass as usize]);
+        self.scene
+            .run_system(define_system!(|_, characters: &[CharacterStatus]| {
+                for (i, character) in characters.iter().enumerate() {
+                    let brain = &self.brains[character.brain_index as usize];
+
+                    const MAX_DRAWS: usize = 1 // The pass background
+                        + 1 // Occupation field
+                        + 1 // Picture (and accessories, 0 currently)
+                        + CharacterStatus::MAX_OXYGEN.div_ceil(5) as usize
+                        + CharacterStatus::MAX_MORALE.div_ceil(5) as usize
+                        + brain::MAX_GOALS;
+                    let mut draws = ArrayVec::<_, MAX_DRAWS>::new();
+
+                    let pass_x = self.ui_camera.size.x / 2. - 5.7;
+                    let pass_y = -self.ui_camera.size.y / 2. + 0.5 + i as f32 * 3.7;
+                    draws.push((
+                        DrawLayer::Passes,
+                        pass_sprite,
+                        self.ui_camera
+                            .to_output(Rect::xywh(pass_x, pass_y, 5.5, 3.5)),
+                    ));
+
+                    draws.extend(draw_counter(
+                        &self.ui_camera,
+                        &engine.resource_db,
+                        &self.number_sprites,
+                        character.morale,
+                        pass_x + 2.4,
+                        pass_y + 0.68,
+                    ));
+
+                    draws.extend(draw_counter(
+                        &self.ui_camera,
+                        &engine.resource_db,
+                        &self.number_sprites,
+                        character.oxygen,
+                        pass_x + 2.4,
+                        pass_y + 1.18,
+                    ));
+
+                    for (i, goal) in brain.goal_stack.iter().enumerate() {
+                        if let Some(sprite) = goal.sprite(character.personality) {
+                            let sprite =
+                                engine.resource_db.get_sprite(self.sprites[sprite as usize]);
+                            draws.push((
+                                DrawLayer::PassGoalPile,
+                                sprite,
+                                self.ui_camera.to_output(Rect::xywh(
+                                    pass_x + 0.2 + 0.01 * i as f32,
+                                    pass_y + 1.65 + 0.01 * i as f32,
+                                    3.3,
+                                    1.6,
+                                )),
+                            ));
+                        }
+                    }
+
+                    if let Some(sprite) = brain.job.sprite(character.personality) {
+                        let sprite = engine.resource_db.get_sprite(self.sprites[sprite as usize]);
+                        draws.push((
+                            DrawLayer::PassInformation,
+                            sprite,
+                            self.ui_camera.to_output(Rect::xywh(
+                                pass_x + 2.3,
+                                pass_y + 0.22,
+                                2.8,
+                                0.4,
+                            )),
+                        ));
+                    }
+
+                    draws.push((
+                        DrawLayer::PassInformation,
+                        helmet_sprite,
+                        self.ui_camera.to_output(Rect::xywh(
+                            pass_x + 0.28,
+                            pass_y + 0.31,
+                            1.28,
+                            1.28,
+                        )),
+                    ));
+
+                    for (layer, sprite, dst) in draws {
+                        let draw_success = sprite.draw(
+                            dst,
+                            layer as u8,
+                            &mut draw_queue,
+                            &engine.resource_db,
+                            &mut engine.resource_loader,
+                        );
+                        debug_assert!(draw_success);
+                    }
+                }
+            }));
 
         draw_queue.dispatch_draw(&engine.frame_arena, platform);
     }
@@ -681,4 +831,23 @@ fn draw_stockpile(
             debug_assert!(draw_success);
         }
     }
+}
+
+fn draw_counter<'a>(
+    ui_camera: &Camera,
+    resources: &'a ResourceDatabase,
+    number_sprites: &[SpriteHandle],
+    count: u8,
+    x: f32,
+    y: f32,
+) -> impl Iterator<Item = (DrawLayer, &'a SpriteAsset, Rect)> {
+    (0..count.div_ceil(5)).map(move |oxygen_i| {
+        let count = (count - oxygen_i * 5).min(5) - 1;
+        let number_sprite = resources.get_sprite(number_sprites[count as usize]);
+        (
+            DrawLayer::PassInformation,
+            number_sprite,
+            ui_camera.to_output(Rect::xywh(x + 0.4 * oxygen_i as f32, y, 0.4, 0.3)),
+        )
+    })
 }

@@ -68,6 +68,7 @@ pub struct CharacterStatus {
     pub morale: u8,
     pub morale_depletion_amount: u8,
     pub morale_relaxing_increment: u8,
+    pub personality: Personality,
 }
 impl CharacterStatus {
     pub const MAX_OXYGEN: u8 = 24;
@@ -292,6 +293,7 @@ macro_rules! define_consts_with_nice_debug {
 pub struct JobStationVariant(u8);
 define_consts_with_nice_debug!([JobStationVariant] {
     ENERGY_GENERATOR: 1,
+    OXYGEN_GENERATOR: 2,
 });
 
 #[derive(Clone, Copy, PartialEq, Eq, Zeroable, Pod)]
@@ -309,5 +311,18 @@ impl ResourceVariant {
             ResourceVariant::ENERGY => Some(Sprite::Energy),
             _ => None,
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Zeroable, Pod)]
+#[repr(C)]
+pub struct Personality(u8);
+define_consts_with_nice_debug!([Personality] {
+    KAOMOJI: 0b1,
+});
+
+impl Personality {
+    pub fn contains(self, other: Personality) -> bool {
+        (self.0 & other.0) == other.0
     }
 }
