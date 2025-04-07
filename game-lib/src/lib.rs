@@ -8,7 +8,10 @@ mod notifications;
 mod pathfinding;
 mod tilemap;
 
-use core::{fmt::Write, time::Duration};
+use core::{
+    fmt::Write,
+    time::{self, Duration},
+};
 
 use arrayvec::{ArrayString, ArrayVec};
 use brain::{Brain, HaulDescription, Occupation};
@@ -21,6 +24,7 @@ use engine::{
     define_system,
     game_objects::{GameObjectHandle, Scene},
     geom::Rect,
+    input::{ActionKind, ActionState, InputDeviceState},
     renderer::DrawQueue,
     resources::{
         ResourceDatabase, ResourceLoader, audio_clip::AudioClipHandle, sprite::SpriteHandle,
@@ -33,7 +37,7 @@ use game_object::{
 use glam::Vec2;
 use grid::BitGrid;
 use notifications::NotificationSet;
-use platform::{Instant, Platform};
+use platform::{ActionCategory, Event, InputDevice, Instant, Platform};
 use tilemap::{Tile, Tilemap};
 use tracing::debug;
 
@@ -70,6 +74,88 @@ enum Sprite {
     _Count,
 }
 
+#[derive(Clone, Copy, Debug)]
+#[repr(usize)]
+enum Button {
+    Up = 0,
+    Down,
+    Left,
+    Right,
+    OpenMenu,
+    Accept,
+    Cancel,
+    _Count,
+}
+
+fn create_action_bindings(
+    device: InputDevice,
+    flip_confirm_cancel: bool,
+    platform: &dyn Platform,
+) -> InputDeviceState<{ Button::_Count as usize }> {
+    InputDeviceState {
+        device,
+        actions: [
+            // Up
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: platform.default_button_for_action(ActionCategory::Up, device),
+                disabled: false,
+                pressed: false,
+            },
+            // Down
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: platform.default_button_for_action(ActionCategory::Down, device),
+                disabled: false,
+                pressed: false,
+            },
+            // Left
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: platform.default_button_for_action(ActionCategory::Left, device),
+                disabled: false,
+                pressed: false,
+            },
+            // Right
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: platform.default_button_for_action(ActionCategory::Right, device),
+                disabled: false,
+                pressed: false,
+            },
+            // OpenMenu
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: platform.default_button_for_action(ActionCategory::Pause, device),
+                disabled: false,
+                pressed: false,
+            },
+            // Accept
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: if flip_confirm_cancel {
+                    platform.default_button_for_action(ActionCategory::Cancel, device)
+                } else {
+                    platform.default_button_for_action(ActionCategory::Accept, device)
+                },
+                disabled: false,
+                pressed: false,
+            },
+            // Cancel
+            ActionState {
+                kind: ActionKind::Instant,
+                mapping: if flip_confirm_cancel {
+                    platform.default_button_for_action(ActionCategory::Accept, device)
+                } else {
+                    platform.default_button_for_action(ActionCategory::Cancel, device)
+                },
+                disabled: false,
+                pressed: false,
+            },
+        ],
+    }
+}
+
 pub struct Game {
     tilemap: Tilemap<'static>,
     camera: Camera,
@@ -78,9 +164,13 @@ pub struct Game {
     haul_notifications: NotificationSet<'static, HaulDescription>,
     current_tick: u64,
     next_tick_time: Instant,
+    last_frame_timestamp: Instant,
     sprites: ArrayVec<SpriteHandle, { Sprite::_Count as usize }>,
     music_clips: ArrayVec<AudioClipHandle, 4>,
     last_music_clip_start: Instant,
+    flip_confirm_cancel: bool,
+    input: Option<InputDeviceState<{ Button::_Count as usize }>>,
+    paused: bool,
 }
 
 impl Game {
@@ -141,7 +231,7 @@ impl Game {
         Game {
             tilemap: Tilemap::new(arena, &engine.resource_db),
             camera: Camera {
-                position: Vec2::ZERO,
+                position: Vec2::new(7., 7.),
                 size: Vec2::ZERO,
                 output_size: Vec2::ZERO,
             },
@@ -150,6 +240,7 @@ impl Game {
             haul_notifications,
             current_tick: 0,
             next_tick_time: platform.now(),
+            last_frame_timestamp: platform.now(),
             sprites: {
                 use Sprite::*;
                 let sprite_enums: [Sprite; Sprite::_Count as usize] =
@@ -174,11 +265,51 @@ impl Game {
                 music_clips
             },
             last_music_clip_start: platform.now() - Duration::from_secs(10000),
+            flip_confirm_cancel: false,
+            input: None,
+            paused: false,
         }
     }
 
     pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, timestamp: Instant) {
+        let dt_real = timestamp
+            .duration_since(self.last_frame_timestamp)
+            .map(|d| d.as_secs_f32())
+            .unwrap_or(0.0);
+        self.last_frame_timestamp = timestamp;
+
+        // Handle input:
+
+        if let Some(event) = engine.event_queue.last() {
+            match event.event {
+                Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
+                    self.input = Some(create_action_bindings(
+                        device,
+                        self.flip_confirm_cancel,
+                        platform,
+                    ));
+                }
+            }
+        }
+
+        if let Some(input) = &mut self.input {
+            input.update(&mut engine.event_queue);
+
+            if input.actions[Button::OpenMenu as usize].pressed {
+                self.paused = !self.paused;
+            }
+
+            if !self.paused {
+                let dx = (input.actions[Button::Right as usize].pressed as i32 as f32)
+                    - (input.actions[Button::Left as usize].pressed as i32 as f32);
+                let dy = (input.actions[Button::Down as usize].pressed as i32 as f32)
+                    - (input.actions[Button::Up as usize].pressed as i32 as f32);
+                self.camera.position += Vec2::new(dx, dy);
+            }
+        }
+
         // Game logic:
+
         while timestamp >= self.next_tick_time {
             self.next_tick_time = self.next_tick_time + Duration::from_millis(MILLIS_PER_TICK);
             self.current_tick += 1;
@@ -328,6 +459,7 @@ impl Game {
         }
 
         // Music:
+
         if let Some(duration) = timestamp.duration_since(self.last_music_clip_start) {
             if duration > Duration::from_secs(45) {
                 let time_ms = timestamp
@@ -352,7 +484,6 @@ impl Game {
         let aspect_ratio = draw_width / draw_height;
         self.camera.output_size = Vec2::new(draw_width, draw_height);
         self.camera.size = Vec2::new(aspect_ratio * 16., 16.);
-        self.camera.position = self.camera.size / 2.;
 
         let mut draw_queue = DrawQueue::new(&engine.frame_arena, 10_000, draw_scale).unwrap();
 
@@ -363,8 +494,6 @@ impl Game {
             &self.camera,
             &engine.frame_arena,
         );
-
-        let scale = self.camera.output_size / self.camera.size;
 
         // Non-specific stockpiles
         self.scene.run_system(define_system!(
@@ -379,7 +508,7 @@ impl Game {
                         &mut draw_queue,
                         DrawLayer::LooseStockpiles,
                         &self.sprites,
-                        scale,
+                        &self.camera,
                         tile_pos,
                         stockpile,
                     );
@@ -400,7 +529,7 @@ impl Game {
                         &mut draw_queue,
                         DrawLayer::CarriedStockpiles,
                         &self.sprites,
-                        scale,
+                        &self.camera,
                         tile_pos,
                         stockpile,
                     );
@@ -421,7 +550,7 @@ impl Game {
                         &mut draw_queue,
                         DrawLayer::JobStationStockpiles,
                         &self.sprites,
-                        scale,
+                        &self.camera,
                         tile_pos,
                         stockpile,
                     );
@@ -442,22 +571,22 @@ impl Game {
                     let helmet = (
                         DrawLayer::CharacterHelmets,
                         helmet_sprite,
-                        Rect::xywh(
-                            (tile_pos.x as f32 + 0.5 / 2.) * scale.x,
-                            (tile_pos.y as f32 - 0.2 / 3.) * scale.y,
-                            scale.x * 1. / 2.,
-                            scale.y * 1. / 2.,
-                        ),
+                        self.camera.to_output(Rect::xywh(
+                            tile_pos.x as f32 + 0.5 / 2.,
+                            tile_pos.y as f32 - 0.2 / 3.,
+                            1. / 2.,
+                            1. / 2.,
+                        )),
                     );
                     let suit = (
                         DrawLayer::CharacterSuits,
                         suit_sprite,
-                        Rect::xywh(
-                            (tile_pos.x as f32 + 0. / 3.) * scale.x,
-                            (tile_pos.y as f32 + 0. / 3.) * scale.y,
-                            scale.x * 3. / 3.,
-                            scale.y * 3. / 3.,
-                        ),
+                        self.camera.to_output(Rect::xywh(
+                            tile_pos.x as f32 + 0. / 3.,
+                            tile_pos.y as f32 + 0. / 3.,
+                            1.,
+                            1.,
+                        )),
                     );
                     for (layer, sprite, dst) in [helmet, suit] {
                         let draw_success = sprite.draw(
@@ -484,7 +613,7 @@ fn draw_stockpile(
     draw_queue: &mut DrawQueue,
     layer: DrawLayer,
     sprites: &[SpriteHandle],
-    scale: Vec2,
+    camera: &Camera,
     tile_pos: &TilePosition,
     stockpile: &Stockpile,
 ) {
@@ -503,12 +632,12 @@ fn draw_stockpile(
                 Vec2::new(0.05, -0.03),
             ][j];
             let off = stockpile_pos + individual_offset;
-            let dst = Rect::xywh(
-                (tile_pos.x as f32 + off.x) * scale.x,
-                (tile_pos.y as f32 + off.y) * scale.y,
-                scale.x / 4.,
-                scale.y / 4.,
-            );
+            let dst = camera.to_output(Rect::xywh(
+                tile_pos.x as f32 + off.x,
+                tile_pos.y as f32 + off.y,
+                1. / 4.,
+                1. / 4.,
+            ));
             let sprite = stockpile.variants[i]
                 .sprite()
                 .unwrap_or(Sprite::Placeholder);

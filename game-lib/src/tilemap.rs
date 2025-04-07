@@ -65,7 +65,7 @@ impl Tilemap<'_> {
         camera: &Camera,
         temp_arena: &LinearAllocator,
     ) {
-        let top_left = (camera.position - camera.size / 2.)
+        let top_left = (camera.position - camera.size / 2. - Vec2::ONE)
             .max(Vec2::ZERO)
             .as_usizevec2();
         let bottom_right = (camera.position + camera.size / 2.)
@@ -79,7 +79,6 @@ impl Tilemap<'_> {
             let _ = tile_sprites.push(resources.get_sprite(*sprite));
         }
 
-        let scale = camera.output_size / camera.size;
         for y in top_left.y..bottom_right.y {
             for x in top_left.x..bottom_right.x {
                 let tile = self.tiles[(x, y)];
@@ -87,7 +86,7 @@ impl Tilemap<'_> {
                     debug_assert!(false, "missing sprite for tile: {tile:?}");
                     continue;
                 };
-                let dst = Rect::xywh(x as f32 * scale.x, y as f32 * scale.y, scale.x, scale.y);
+                let dst = camera.to_output(Rect::xywh(x as f32, y as f32, 1., 1.));
                 let _ = sprite.draw(
                     dst,
                     DrawLayer::Tilemap as u8,
