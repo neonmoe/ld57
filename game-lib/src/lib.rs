@@ -56,6 +56,7 @@ enum DrawLayer {
     LooseStockpiles,
     CharacterSuits,
     CharacterHelmets,
+    JobStations,
     JobStationStockpiles,
     CarriedStockpiles,
     // UI
@@ -100,6 +101,9 @@ enum Sprite {
     MenuItemOptions,
     MenuItemManageChars,
     MenuItemBuild,
+    EnergyGenerator,
+    OxygenGenerator,
+    Oxygen,
     _Count,
 }
 
@@ -335,6 +339,9 @@ impl Game {
                     MenuItemOptions,
                     MenuItemManageChars,
                     MenuItemBuild,
+                    EnergyGenerator,
+                    OxygenGenerator,
+                    Oxygen,
                 ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
@@ -540,7 +547,9 @@ impl Game {
                         for (character, pos) in characters.iter().zip(positions) {
                             let brain = &self.brains[character.brain_index as usize];
                             if let Some(new_pos) = brain.next_move_position() {
-                                *pos = new_pos;
+                                if !walls.get(new_pos) {
+                                    *pos = new_pos;
+                                }
                             }
                         }
                     }
@@ -731,6 +740,29 @@ impl Game {
                         tile_pos,
                         stockpile,
                     );
+                }
+            }
+        ));
+
+        // Job stations themselves
+        self.scene.run_system(define_system!(
+            |_, tile_positions: &[TilePosition], job_stations: &[JobStationStatus]| {
+                for (tile_pos, job_station) in tile_positions.iter().zip(job_stations) {
+                    let sprite = job_station.variant.sprite();
+                    let sprite = engine.resource_db.get_sprite(self.sprites[sprite as usize]);
+                    let draw_success = sprite.draw(
+                        self.camera.to_output(Rect::xywh(
+                            tile_pos.x as f32,
+                            tile_pos.y as f32,
+                            1.,
+                            1.,
+                        )),
+                        DrawLayer::JobStations as u8,
+                        &mut draw_queue,
+                        &engine.resource_db,
+                        &mut engine.resource_loader,
+                    );
+                    debug_assert!(draw_success);
                 }
             }
         ));

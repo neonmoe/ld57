@@ -179,6 +179,21 @@
       "command": "add_sprite",
       "name": "MenuItemBuild",
       "file": "resources/sprites/menuitem-build.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Oxygen",
+      "file": "resources/sprites/oxygen.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "EnergyGenerator",
+      "file": "resources/sprites/energy-generator.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "OxygenGenerator",
+      "file": "resources/sprites/oxygen-generator.png"
     }
   ]
 }

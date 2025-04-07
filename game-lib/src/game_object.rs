@@ -96,6 +96,14 @@ pub struct JobStationStatus {
     pub work_invested: u8,
 }
 impl JobStationVariant {
+    pub const fn sprite(self) -> Sprite {
+        match self {
+            JobStationVariant::ENERGY_GENERATOR => Sprite::EnergyGenerator,
+            JobStationVariant::OXYGEN_GENERATOR => Sprite::OxygenGenerator,
+            _ => Sprite::Placeholder,
+        }
+    }
+
     pub const fn details(self) -> Option<JobStationDetails> {
         match self {
             JobStationVariant::ENERGY_GENERATOR => Some(JobStationDetails {

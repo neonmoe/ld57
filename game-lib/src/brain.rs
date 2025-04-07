@@ -310,6 +310,10 @@ impl Brain {
                 if demoralized {
                     goal_not_acheivable = true;
                 }
+                match self.job {
+                    Occupation::Operator(job_) if *job == job_ => {} // keep working
+                    _ => goal_finished = true, // occupation changed, done here
+                }
 
                 // See if we're ready to work, request resources if needed
                 // (the actual work is done in work ticks upstream)
