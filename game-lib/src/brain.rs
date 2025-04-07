@@ -46,6 +46,7 @@ pub enum Goal {
         relax_start_tick: GameTicks,
         walk_aabb: (TilePosition, TilePosition),
     },
+    RefillOxygen,
     // TODO: Add a goal or another way to "stop" a character while an animation
     // or notification effect is happening (maybe an Animatable component or
     // something?)
@@ -61,6 +62,7 @@ impl Goal {
                 Some(Sprite::GoalRelaxAlt)
             }
             Goal::Relax { .. } => Some(Sprite::GoalRelax),
+            Goal::RefillOxygen => Some(Sprite::GoalOxygen),
         }
     }
 }
@@ -190,7 +192,7 @@ impl Brain {
             // TODO: display/animate running out of oxygen
             return;
         }
-        let demoralized = current_status.morale <= CharacterStatus::DEMORALIZED_THRESHOLD;
+        let demoralized = current_status.morale <= CharacterStatus::LOW_MORALE_THRESHOLD;
 
         // This branch picks something occupation-based to do, so it's not ran
         // when on low morale.
@@ -270,6 +272,30 @@ impl Brain {
                         }
                     }
                 }
+            }
+        }
+
+        temp_arena.reset();
+
+        if current_status.oxygen <= CharacterStatus::LOW_OXYGEN_THRESHOLD
+            && self
+                .goal_stack
+                .iter()
+                .all(|goal| !matches!(goal, Goal::RefillOxygen))
+        {
+            if let Some(oxygen) =
+                find_non_reserved_resources(scene, ResourceVariant::OXYGEN, temp_arena, walls)
+            {
+                let from = current_position;
+                if let Some(path) = find_path_to_any(from, &oxygen, true, walls, temp_arena) {
+                    debug!("found path to oxygen: {path:?}");
+                    self.goal_stack.push(Goal::RefillOxygen);
+                    self.goal_stack.push(Goal::FollowPath { from, path });
+                } else {
+                    debug!("out of breath and there is oxygen but I can't get there :(");
+                }
+            } else {
+                debug!("out of breath and there is no oxygen :(");
             }
         }
 
@@ -457,12 +483,12 @@ impl Brain {
                 // stuff we just picked up into our stockpile if we picked up
                 // some)
                 let mut resources_acquired = false;
+                let mut current_amount = 0;
                 scene.run_system(define_system!(
                     |_, characters: &[CharacterStatus], stockpiles: &mut [Stockpile]| {
                         for (character, stockpile) in characters.iter().zip(stockpiles) {
                             if character.brain_index == current_brain_index {
-                                let mut current_amount =
-                                    stockpile.get_resources(*resource).unwrap_or(0);
+                                current_amount = stockpile.get_resources(*resource).unwrap_or(0);
                                 if picked_up_thus_far > 0 && current_amount < *requested_amount {
                                     let pocketed =
                                         picked_up_thus_far.min(*requested_amount - current_amount);
@@ -502,11 +528,34 @@ impl Brain {
                     }
                 }
 
+                if !resources_acquired {
+                    debug!("looking for (more) {resource:?}");
+
+                    // Find path
+                    let destinations =
+                        find_non_reserved_resources(scene, *resource, temp_arena, walls);
+                    let from = current_position;
+                    if let Some(path) = destinations
+                        .and_then(|dsts| find_path_to_any(from, &dsts, true, walls, temp_arena))
+                    {
+                        debug!("found path to resource: {path:?}");
+                        new_instrumental_goal = Some(Goal::FollowPath { from, path });
+                    } else if current_amount > 0 {
+                        debug!(
+                            "could not find more resource {resource:?}, but I have {current_amount}, bringing what I got"
+                        );
+                        resources_acquired = true;
+                    } else {
+                        debug!("could not find resources, giving up");
+                        goal_not_acheivable = true;
+                    }
+                }
+
                 // Either find a path to the destination or the resources,
                 // depending on if we have the stuff
                 let mut drop_off = false;
                 if resources_acquired {
-                    debug!("I have the needed {requested_amount}x {resource:?}");
+                    debug!("I have {current_amount}x {resource:?} and am bringing them back");
                     let (from, to) = (current_position, destination.1);
                     if let Some(path) = find_path_to(from, to, true, walls, temp_arena) {
                         if path.is_empty() {
@@ -518,32 +567,6 @@ impl Brain {
                         }
                     } else {
                         debug!("could not find path from {from:?} to {to:?}");
-                    }
-                } else {
-                    debug!("looking for {resource:?}");
-
-                    // Find path
-                    let destinations =
-                        find_non_reserved_resources(scene, *resource, temp_arena, walls);
-                    let from = current_position;
-                    if let Some(path) = destinations
-                        .and_then(|dsts| find_path_to_any(from, &dsts, true, walls, temp_arena))
-                    {
-                        debug!("found path to resource: {path:?}");
-                        new_instrumental_goal = Some(Goal::FollowPath { from, path });
-                    } else {
-                        debug!(
-                            "could not find resource {resource:?}, posting the notification again :("
-                        );
-                        goal_not_acheivable = true;
-                        // Repost the haul notification for someone else to pick
-                        // (the original poster won't know about this one, but
-                        // that's fine).
-                        let _ = haul_notifications.notify(HaulDescription {
-                            resource: *resource,
-                            destination: *destination,
-                            amount: *requested_amount,
-                        });
                     }
                 }
 
@@ -568,10 +591,10 @@ impl Brain {
                                         position.manhattan_distance(*current_position) < 2
                                     );
                                     let overflow = stockpile
-                                        .add_resource(*resource, *requested_amount)
+                                        .add_resource(*resource, current_amount)
                                         .err()
                                         .unwrap_or(0);
-                                    dropped_off += *requested_amount - overflow;
+                                    dropped_off += current_amount - overflow;
                                     goal_finished = true;
                                     break;
                                 }
@@ -586,12 +609,13 @@ impl Brain {
                         |_, characters: &[CharacterStatus], stockpiles: &mut [Stockpile]| {
                             for (character, stockpile) in characters.iter().zip(stockpiles) {
                                 if character.brain_index == current_brain_index {
-                                    let hauled_res =
-                                        stockpile.get_resources_mut(*resource).unwrap();
-                                    left_over = *hauled_res - dropped_off;
-                                    *hauled_res -= dropped_off;
-                                    *hauled_res -= left_over;
-                                    stockpile.mark_reserved(*resource, false);
+                                    if let Some(hauled_res) = stockpile.get_resources_mut(*resource)
+                                    {
+                                        left_over = *hauled_res - dropped_off;
+                                        *hauled_res -= dropped_off;
+                                        *hauled_res -= left_over;
+                                        stockpile.mark_reserved(*resource, false);
+                                    }
                                     break;
                                 }
                             }
@@ -681,6 +705,52 @@ impl Brain {
                         new_instrumental_goal = Some(Goal::FollowPath { from, path });
                     }
                 }
+            }
+
+            Goal::RefillOxygen => {
+                let mut oxygen_found = false;
+                scene.run_system(define_system!(
+                    |_, positions: &[TilePosition], stockpiles: &mut [Stockpile]| {
+                        for (position, stockpile) in positions.iter().zip(stockpiles) {
+                            if position.manhattan_distance(*current_position) < 2
+                                && stockpile.has_non_reserved_resources(ResourceVariant::OXYGEN)
+                            {
+                                let stockpile_amount = stockpile
+                                    .get_resources_mut(ResourceVariant::OXYGEN)
+                                    .unwrap();
+                                if *stockpile_amount > 0 {
+                                    *stockpile_amount -= 1;
+                                    oxygen_found = true;
+                                    debug!(
+                                        "found oxygen, left {} in the stockpile",
+                                        *stockpile_amount,
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                ));
+
+                if !oxygen_found {
+                    goal_not_acheivable = true;
+                } else if current_status.oxygen + 1 >= CharacterStatus::MAX_OXYGEN {
+                    goal_finished = true;
+                }
+
+                scene.run_system(define_system!(|_, characters: &mut [CharacterStatus]| {
+                    for character in characters {
+                        if character.brain_index == current_brain_index {
+                            character.oxygen = character.oxygen.saturating_add(1);
+                            debug!(
+                                "breathed in oxygen, now at {}/{}",
+                                character.oxygen,
+                                CharacterStatus::MAX_OXYGEN,
+                            );
+                            break;
+                        }
+                    }
+                }));
             }
         }
 

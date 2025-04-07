@@ -46,6 +46,7 @@ const MAX_CHARACTERS: usize = 10;
 
 pub type GameTicks = u64;
 pub const MILLIS_PER_TICK: u64 = 100;
+const STOCKPILE_VISUALIZED_COUNT: u8 = 5;
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -54,18 +55,21 @@ enum DrawLayer {
     Tilemap,
     // Game objects
     LooseStockpiles,
+    _ReserveFiveLooseStockpiles = DrawLayer::LooseStockpiles as u8 + STOCKPILE_VISUALIZED_COUNT,
     CharacterSuits,
     CharacterHelmets,
     JobStations,
     JobStationStockpiles,
+    _ReserveFiveJobStationStockpiles =
+        DrawLayer::JobStationStockpiles as u8 + STOCKPILE_VISUALIZED_COUNT,
     CarriedStockpiles,
+    _ReserveFiveCarriedStockpiles = DrawLayer::CarriedStockpiles as u8 + STOCKPILE_VISUALIZED_COUNT,
     // UI
     Passes,
     PassInformation,
     PassGoalPile,
-    Menu0,
-    _Menu1,
-    _Menu2,
+    Menu,
+    _ReserveThreeMenus = DrawLayer::Menu as u8 + 3,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +92,7 @@ enum Sprite {
     GoalRelaxAlt,
     GoalHaul,
     GoalWork,
+    GoalOxygen,
     OccupationIdle,
     OccupationHauler,
     OccupationWorkEnergy,
@@ -326,6 +331,7 @@ impl Game {
                     GoalRelaxAlt,
                     GoalHaul,
                     GoalWork,
+                    GoalOxygen,
                     OccupationIdle,
                     OccupationHauler,
                     OccupationWorkEnergy,
@@ -976,7 +982,7 @@ impl Game {
                     .filter(|(_, menu)| menu.rendered)
                     .enumerate()
                 {
-                    let draw_layer = DrawLayer::Menu0 as u8 + rendered_idx as u8;
+                    let draw_layer = DrawLayer::Menu as u8 + rendered_idx as u8;
                     let menu_camera = Camera {
                         position: self.ui_camera.size / 2.
                             - Vec2::new(0.2, 0.2)
@@ -1062,7 +1068,7 @@ fn draw_stockpile(
             Vec2::new(0.6, 0.5),
             Vec2::new(0.2, 0.25),
         ][i];
-        for j in 0..stockpile.amounts[i].min(5) as usize {
+        for j in 0..stockpile.amounts[i].min(STOCKPILE_VISUALIZED_COUNT) as usize {
             let individual_offset = [
                 Vec2::new(-0.1, -0.07),
                 Vec2::new(0.1, 0.02),
@@ -1081,8 +1087,13 @@ fn draw_stockpile(
                 .sprite()
                 .unwrap_or(Sprite::Placeholder);
             let sprite = resources.get_sprite(sprites[sprite as usize]);
-            let draw_success =
-                sprite.draw(dst, layer as u8, draw_queue, resources, resource_loader);
+            let draw_success = sprite.draw(
+                dst,
+                layer as u8 + j as u8,
+                draw_queue,
+                resources,
+                resource_loader,
+            );
             debug_assert!(draw_success);
         }
     }

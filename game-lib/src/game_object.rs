@@ -73,8 +73,9 @@ pub struct CharacterStatus {
 impl CharacterStatus {
     pub const MAX_OXYGEN: u8 = 24;
     pub const BASE_OXYGEN_DEPLETION_AMOUNT: u8 = 3;
+    pub const LOW_OXYGEN_THRESHOLD: u8 = 9;
     pub const MAX_MORALE: u8 = 24;
-    pub const DEMORALIZED_THRESHOLD: u8 = 9;
+    pub const LOW_MORALE_THRESHOLD: u8 = 9;
     pub const BASE_MORALE_DEPLETION_AMOUNT: u8 = 3;
     pub const BASE_MORALE_RELAXING_INCREMENT: u8 = 3;
 }
@@ -115,25 +116,10 @@ impl JobStationVariant {
             }),
             JobStationVariant::OXYGEN_GENERATOR => Some(JobStationDetails {
                 resource_variant: ResourceVariant::ENERGY,
-                resource_amount: 5,
+                resource_amount: 1,
                 work_amount: 5,
                 output_variant: ResourceVariant::OXYGEN,
-                output_amount: {
-                    let energy_gen = JobStationVariant::ENERGY_GENERATOR.details().unwrap();
-                    let energy_req = 5u32;
-                    let work_req = 1u32;
-                    let work_ticks_per_oxygen_tick = 50u32;
-                    let gen_rounds_per_oxygen =
-                        energy_req.div_ceil(energy_gen.output_amount as u32);
-                    let work_ticks_per_output =
-                        gen_rounds_per_oxygen * energy_gen.work_amount as u32 + work_req;
-                    let oxygen_requirement_per_oxygen_tick =
-                        2 * CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT as u32;
-                    let minimum_oxygen_per_output =
-                        (oxygen_requirement_per_oxygen_tick * work_ticks_per_oxygen_tick
-                            / work_ticks_per_output) as u8;
-                    minimum_oxygen_per_output * 3 / 2
-                },
+                output_amount: 15,
             }),
             _ => None,
         }
@@ -340,6 +326,7 @@ impl ResourceVariant {
         match self {
             ResourceVariant::MAGMA => Some(Sprite::Magma),
             ResourceVariant::ENERGY => Some(Sprite::Energy),
+            ResourceVariant::OXYGEN => Some(Sprite::Oxygen),
             _ => None,
         }
     }
