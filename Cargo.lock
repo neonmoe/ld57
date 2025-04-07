@@ -67,7 +67,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 [[package]]
 name = "engine"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#a59672bbdf9391707e070f0e57b3bfb8cdf2eb95"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#4651ddf06922739c87adccc3e476a5ec3fe40400"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -166,7 +166,7 @@ checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 [[package]]
 name = "platform"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#a59672bbdf9391707e070f0e57b3bfb8cdf2eb95"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#4651ddf06922739c87adccc3e476a5ec3fe40400"
 dependencies = [
  "arrayvec",
  "bytemuck",
@@ -176,7 +176,7 @@ dependencies = [
 [[package]]
 name = "platform-sdl2"
 version = "0.1.0"
-source = "git+https://github.com/pcjens/rust-game-engine-prototype#a59672bbdf9391707e070f0e57b3bfb8cdf2eb95"
+source = "git+https://github.com/pcjens/rust-game-engine-prototype#4651ddf06922739c87adccc3e476a5ec3fe40400"
 dependencies = [
  "platform",
  "sdl2",

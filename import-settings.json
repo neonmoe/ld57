@@ -187,6 +187,21 @@
     },
     {
       "command": "add_sprite",
+      "name": "MenuItemVolume",
+      "file": "resources/sprites/menuitem-volume.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemFlipACfalse",
+      "file": "resources/sprites/menuitem-flipconfirm.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemFlipACtrue",
+      "file": "resources/sprites/menuitem-flipconfirm-toggled.png"
+    },
+    {
+      "command": "add_sprite",
       "name": "Oxygen",
       "file": "resources/sprites/oxygen.png"
     },
@@ -204,6 +219,11 @@
       "command": "add_sprite",
       "name": "GeothermalVent",
       "file": "resources/sprites/geothermal-vent.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "SliderHandle",
+      "file": "resources/sprites/slider-handle.png"
     }
   ]
 }

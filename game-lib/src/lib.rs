@@ -69,8 +69,10 @@ enum DrawLayer {
     Passes,
     PassInformation,
     PassGoalPile,
-    Menu,
-    _ReserveThreeMenus = DrawLayer::Menu as u8 + 3,
+    MenuBg,
+    MenuItems,
+    MenuFg,
+    _ReserveThreeSetsOfMenus = DrawLayer::MenuFg as u8 + 6,
 }
 
 #[derive(Clone, Copy)]
@@ -107,9 +109,13 @@ enum Sprite {
     MenuItemOptions,
     MenuItemManageChars,
     MenuItemBuild,
+    MenuItemVolume,
+    MenuItemFlipACfalse,
+    MenuItemFlipACtrue,
     EnergyGenerator,
     OxygenGenerator,
     Oxygen,
+    SliderHandle,
     _Count,
 }
 
@@ -361,9 +367,13 @@ impl Game {
                     MenuItemOptions,
                     MenuItemManageChars,
                     MenuItemBuild,
+                    MenuItemVolume,
+                    MenuItemFlipACfalse,
+                    MenuItemFlipACtrue,
                     EnergyGenerator,
                     OxygenGenerator,
                     Oxygen,
+                    SliderHandle,
                 ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
@@ -457,19 +467,33 @@ impl Game {
                                 self.paused = false;
                                 self.menu = None;
                             }
-                            (MenuEntry::Options, MenuAction::Select) => {} // TODO
-                            (MenuEntry::Build, MenuAction::Select) => {}   // TODO
+                            (MenuEntry::Options, MenuAction::Select) => {
+                                menus.push(Menu::options(self.flip_confirm_cancel));
+                            }
+                            (MenuEntry::Build, MenuAction::Select) => {} // TODO
                             (MenuEntry::BuildSelect(_), MenuAction::Select) => {} // TODO
                             (MenuEntry::ManageCharacters, MenuAction::Select) => {
                                 menus.push(Menu::manage_characters(self.brains.len()));
                             }
                             (MenuEntry::ManageCharacter { brain_index }, MenuAction::Previous) => {
-                                let job = &mut self.brains[brain_index].job;
+                                let job = &mut self.brains[*brain_index].job;
                                 *job = job.previous();
                             }
                             (MenuEntry::ManageCharacter { brain_index }, MenuAction::Next) => {
-                                let job = &mut self.brains[brain_index].job;
+                                let job = &mut self.brains[*brain_index].job;
                                 *job = job.next();
+                            }
+                            (MenuEntry::FlipAcceptCancel(flip), _) => {
+                                *flip = !*flip;
+                                self.flip_confirm_cancel = *flip;
+                            }
+                            (MenuEntry::Volume, MenuAction::Next) => {
+                                let vol = &mut engine.audio_mixer.channels[0].volume;
+                                *vol = vol.saturating_add(32);
+                            }
+                            (MenuEntry::Volume, MenuAction::Previous) => {
+                                let vol = &mut engine.audio_mixer.channels[0].volume;
+                                *vol = vol.saturating_sub(32);
                             }
                             _ => {}
                         }
@@ -1012,6 +1036,9 @@ impl Game {
         let menu_underscore = engine
             .resource_db
             .get_sprite(self.sprites[Sprite::MenuUnderscore as usize]);
+        let slider_handle = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::SliderHandle as usize]);
         match &self.menu {
             Some(MenuMode::MenuStack(menus)) => {
                 let last_menu_idx = menus.len().saturating_sub(1);
@@ -1021,7 +1048,6 @@ impl Game {
                     .filter(|(_, menu)| menu.rendered)
                     .enumerate()
                 {
-                    let draw_layer = DrawLayer::Menu as u8 + rendered_idx as u8;
                     let menu_camera = Camera {
                         position: self.ui_camera.size / 2.
                             - Vec2::new(0.2, 0.2)
@@ -1029,6 +1055,7 @@ impl Game {
                         size: self.ui_camera.size,
                         output_size: self.ui_camera.output_size,
                     };
+                    let draw_layer_offset = rendered_idx as u8 * 3;
 
                     for (i, bg) in [menu_background_top]
                         .into_iter()
@@ -1043,7 +1070,7 @@ impl Game {
                     {
                         let draw_success = bg.draw(
                             menu_camera.to_output(Rect::xywh(0.0, i as f32, 5.5, 1.0)),
-                            draw_layer,
+                            DrawLayer::MenuBg as u8 + draw_layer_offset,
                             &mut draw_queue,
                             &engine.resource_db,
                             &mut engine.resource_loader,
@@ -1061,7 +1088,20 @@ impl Game {
                                 engine.resource_db.get_sprite(self.sprites[sprite as usize]);
                             let draw_success = sprite.draw(
                                 menu_camera.to_output(Rect::xywh(0.25, i as f32 + 0.2, 5.0, 0.6)),
-                                draw_layer,
+                                DrawLayer::MenuItems as u8 + draw_layer_offset,
+                                &mut draw_queue,
+                                &engine.resource_db,
+                                &mut engine.resource_loader,
+                            );
+                            debug_assert!(draw_success);
+                        }
+
+                        if let MenuEntry::Volume = *menu.entry(entry_idx) {
+                            let vol = engine.audio_mixer.channels[0].volume as f32 / 0xFF as f32;
+                            let x = 0.25 + 2.0 + 2.6 * vol;
+                            let draw_success = slider_handle.draw(
+                                menu_camera.to_output(Rect::xywh(x, i as f32 + 0.3, 0.4, 0.4)),
+                                DrawLayer::MenuFg as u8 + draw_layer_offset,
                                 &mut draw_queue,
                                 &engine.resource_db,
                                 &mut engine.resource_loader,
@@ -1072,7 +1112,7 @@ impl Game {
                         if entry_idx == menu.hover_index() && menu_idx == last_menu_idx {
                             let draw_success = menu_underscore.draw(
                                 menu_camera.to_output(Rect::xywh(0.25, i as f32 + 0.8, 5.0, 0.1)),
-                                draw_layer,
+                                DrawLayer::MenuFg as u8 + draw_layer_offset,
                                 &mut draw_queue,
                                 &engine.resource_db,
                                 &mut engine.resource_loader,

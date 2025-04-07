@@ -36,6 +36,17 @@ impl Menu {
         }
     }
 
+    pub fn options(flip_accept_cancel: bool) -> Menu {
+        let mut entries = ArrayVec::new();
+        entries.push(MenuEntry::Volume);
+        entries.push(MenuEntry::FlipAcceptCancel(flip_accept_cancel));
+        Menu {
+            entries,
+            selected_index: 0,
+            rendered: true,
+        }
+    }
+
     pub fn manage_characters(character_count: usize) -> Menu {
         let mut entries = ArrayVec::new();
         for brain_index in 0..character_count.min(entries.capacity()) {
@@ -60,6 +71,10 @@ impl Menu {
         self.entries[self.selected_index]
     }
 
+    pub fn entry(&self, index: usize) -> &MenuEntry {
+        &self.entries[index]
+    }
+
     pub fn sprite(&self, index: usize) -> Option<Sprite> {
         let entry = self.entries.get(index)?;
         entry.sprite()
@@ -70,7 +85,7 @@ impl Menu {
     pub fn update(
         &mut self,
         input: &InputDeviceState<{ Button::_Count as usize }>,
-    ) -> Option<(MenuEntry, MenuAction)> {
+    ) -> Option<(&mut MenuEntry, MenuAction)> {
         if input.actions[Button::Up as usize].pressed {
             self.selected_index = self.selected_index.saturating_sub(1);
         }
@@ -78,11 +93,11 @@ impl Menu {
             self.selected_index = (self.selected_index + 1).min(self.entries.len() - 1);
         }
         if input.actions[Button::Accept as usize].pressed {
-            return Some((self.entries[self.selected_index], MenuAction::Select));
+            return Some((&mut self.entries[self.selected_index], MenuAction::Select));
         } else if input.actions[Button::Left as usize].pressed {
-            return Some((self.entries[self.selected_index], MenuAction::Previous));
+            return Some((&mut self.entries[self.selected_index], MenuAction::Previous));
         } else if input.actions[Button::Right as usize].pressed {
-            return Some((self.entries[self.selected_index], MenuAction::Next));
+            return Some((&mut self.entries[self.selected_index], MenuAction::Next));
         }
         None
     }
@@ -97,6 +112,8 @@ pub enum MenuEntry {
     BuildSelect(JobStationVariant),
     ManageCharacters,
     ManageCharacter { brain_index: usize },
+    Volume,
+    FlipAcceptCancel(bool),
 }
 
 impl MenuEntry {
@@ -109,6 +126,9 @@ impl MenuEntry {
             MenuEntry::BuildSelect(_) => None,
             MenuEntry::ManageCharacters => Some(Sprite::MenuItemManageChars),
             MenuEntry::ManageCharacter { .. } => None,
+            MenuEntry::Volume => Some(Sprite::MenuItemVolume),
+            MenuEntry::FlipAcceptCancel(true) => Some(Sprite::MenuItemFlipACtrue),
+            MenuEntry::FlipAcceptCancel(false) => Some(Sprite::MenuItemFlipACfalse),
         }
     }
 }
