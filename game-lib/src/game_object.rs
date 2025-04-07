@@ -62,7 +62,18 @@ impl_game_object! {
 #[derive(Clone, Copy, Debug, Zeroable, Pod)]
 #[repr(C)]
 pub struct CharacterStatus {
-    pub brain_index: usize,
+    pub brain_index: u8,
+    pub oxygen: u8,
+    pub oxygen_depletion_amount: u8,
+    pub morale: u8,
+    pub morale_depletion_amount: u8,
+}
+impl CharacterStatus {
+    pub const MAX_OXYGEN: u8 = 24;
+    pub const BASE_OXYGEN_DEPLETION_AMOUNT: u8 = 3;
+    pub const MAX_MORALE: u8 = 24;
+    pub const DEMORALIZED_THRESHOLD: u8 = 9;
+    pub const BASE_MORALE_DEPLETION_AMOUNT: u8 = 3;
 }
 
 #[derive(Clone, Copy, Debug, Zeroable, Pod)]

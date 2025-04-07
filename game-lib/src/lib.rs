@@ -8,10 +8,7 @@ mod notifications;
 mod pathfinding;
 mod tilemap;
 
-use core::{
-    fmt::Write,
-    time::{self, Duration},
-};
+use core::{fmt::Write, time::Duration};
 
 use arrayvec::{ArrayString, ArrayVec};
 use brain::{Brain, HaulDescription, Occupation};
@@ -191,7 +188,13 @@ impl Game {
             .unwrap();
 
         let char_spawned = scene.spawn(Character {
-            status: CharacterStatus { brain_index: 0 },
+            status: CharacterStatus {
+                brain_index: 0,
+                oxygen: CharacterStatus::MAX_OXYGEN,
+                morale: CharacterStatus::MAX_MORALE - 1,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+            },
             position: TilePosition::new(5, 1),
             held: Stockpile::zeroed(),
             collider: Collider::NOT_WALKABLE,
@@ -199,7 +202,13 @@ impl Game {
         debug_assert!(char_spawned.is_ok());
 
         let char_spawned = scene.spawn(Character {
-            status: CharacterStatus { brain_index: 1 },
+            status: CharacterStatus {
+                brain_index: 1,
+                oxygen: CharacterStatus::MAX_OXYGEN - 2,
+                morale: CharacterStatus::MAX_MORALE,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+            },
             position: TilePosition::new(6, 4),
             held: Stockpile::zeroed(),
             collider: Collider::NOT_WALKABLE,
@@ -352,7 +361,7 @@ impl Game {
                 ));
 
                 for (brain_idx, pos) in &mut *brains_to_think {
-                    self.brains[*brain_idx].update_goals(
+                    self.brains[*brain_idx as usize].update_goals(
                         (*brain_idx, *pos),
                         &mut self.scene,
                         &mut self.haul_notifications,
@@ -365,13 +374,15 @@ impl Game {
 
             let on_move_tick = self.current_tick % 3 == 0;
             let on_work_tick = self.current_tick % 3 != 0;
+            let on_oxygen_and_morale_tick = self.current_tick % 100 == 0;
 
             // Set up this tick's working worker information
             let mut workers = FixedVec::new(&engine.frame_arena, MAX_CHARACTERS).unwrap();
             self.scene.run_system(define_system!(
                 |_, characters: &[CharacterStatus], positions: &[TilePosition]| {
                     for (character, pos) in characters.iter().zip(positions) {
-                        if let Some(job) = self.brains[character.brain_index].current_job() {
+                        if let Some(job) = self.brains[character.brain_index as usize].current_job()
+                        {
                             let could_record_worker = workers.push((job, *pos));
                             debug_assert!(could_record_worker.is_ok());
                         }
@@ -384,13 +395,26 @@ impl Game {
                 self.scene.run_system(define_system!(
                     |_, characters: &[CharacterStatus], positions: &mut [TilePosition]| {
                         for (character, pos) in characters.iter().zip(positions) {
-                            let brain = &self.brains[character.brain_index];
+                            let brain = &self.brains[character.brain_index as usize];
                             if let Some(new_pos) = brain.next_move_position() {
                                 *pos = new_pos;
                             }
                         }
                     }
                 ));
+            }
+
+            // Decrement oxygen and morale for all characters
+            if on_oxygen_and_morale_tick {
+                self.scene
+                    .run_system(define_system!(|_, characters: &mut [CharacterStatus]| {
+                        for character in characters {
+                            character.oxygen = (character.oxygen)
+                                .saturating_sub(character.oxygen_depletion_amount);
+                            character.morale = (character.morale)
+                                .saturating_sub(character.morale_depletion_amount);
+                        }
+                    }));
             }
 
             // Produce at all job stations with a worker next to it

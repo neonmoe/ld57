@@ -88,7 +88,7 @@ impl Brain {
 
     pub fn update_goals(
         &mut self,
-        (current_brain_index, current_position): (usize, TilePosition),
+        (current_brain_index, current_position): (u8, TilePosition),
         scene: &mut Scene,
         haul_notifications: &mut NotificationSet<HaulDescription>,
         walls: &BitGrid,
@@ -97,7 +97,27 @@ impl Brain {
         let span = tracing::info_span!("", current_brain_index);
         let _enter = span.enter();
 
-        if self.goal_stack.is_empty() {
+        let mut current_status = CharacterStatus::zeroed();
+        scene.run_system(define_system!(|_, characters: &[CharacterStatus]| {
+            for character in characters {
+                if character.brain_index == current_brain_index {
+                    current_status = *character;
+                    break;
+                }
+            }
+        }));
+
+        if current_status.oxygen == 0 {
+            self.goal_stack.clear();
+            // TODO: display/animate running out of oxygen
+            return;
+        }
+
+        // This branch picks something player-defined to do (occupation-based
+        // goal setting), so it's not ran when on low morale.
+        if self.goal_stack.is_empty()
+            && current_status.morale > CharacterStatus::DEMORALIZED_THRESHOLD
+        {
             match self.job {
                 Occupation::Idle => {
                     // Idling!
