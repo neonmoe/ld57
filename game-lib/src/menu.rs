@@ -1,16 +1,24 @@
 use arrayvec::ArrayVec;
 use engine::input::InputDeviceState;
 
-use crate::{Button, Sprite};
+use crate::{Button, Sprite, game_object::JobStationVariant};
 
 pub enum MenuMode {
     MenuStack(ArrayVec<Menu, 3>),
     BuildPlacement,
 }
 
+#[derive(Clone, Copy)]
+pub enum MenuAction {
+    Select,
+    Next,
+    Previous,
+}
+
 pub struct Menu {
     entries: ArrayVec<MenuEntry, 8>,
     selected_index: usize,
+    pub rendered: bool,
 }
 
 impl Menu {
@@ -24,6 +32,19 @@ impl Menu {
         Menu {
             entries,
             selected_index: 0,
+            rendered: true,
+        }
+    }
+
+    pub fn manage_characters(character_count: usize) -> Menu {
+        let mut entries = ArrayVec::new();
+        for brain_index in 0..character_count.min(entries.capacity()) {
+            entries.push(MenuEntry::ManageCharacter { brain_index });
+        }
+        Menu {
+            entries,
+            selected_index: 0,
+            rendered: false,
         }
     }
 
@@ -33,6 +54,10 @@ impl Menu {
 
     pub fn hover_index(&self) -> usize {
         self.selected_index
+    }
+
+    pub fn hover_entry(&self) -> MenuEntry {
+        self.entries[self.selected_index]
     }
 
     pub fn sprite(&self, index: usize) -> Option<Sprite> {
@@ -45,7 +70,7 @@ impl Menu {
     pub fn update(
         &mut self,
         input: &InputDeviceState<{ Button::_Count as usize }>,
-    ) -> Option<MenuEntry> {
+    ) -> Option<(MenuEntry, MenuAction)> {
         if input.actions[Button::Up as usize].pressed {
             self.selected_index = self.selected_index.saturating_sub(1);
         }
@@ -53,7 +78,11 @@ impl Menu {
             self.selected_index = (self.selected_index + 1).min(self.entries.len() - 1);
         }
         if input.actions[Button::Accept as usize].pressed {
-            return Some(self.entries[self.selected_index]);
+            return Some((self.entries[self.selected_index], MenuAction::Select));
+        } else if input.actions[Button::Left as usize].pressed {
+            return Some((self.entries[self.selected_index], MenuAction::Previous));
+        } else if input.actions[Button::Right as usize].pressed {
+            return Some((self.entries[self.selected_index], MenuAction::Next));
         }
         None
     }
@@ -65,9 +94,9 @@ pub enum MenuEntry {
     Continue,
     Options,
     Build,
-    BuildSelectEnergy,
-    BuildSelectOxygen,
+    BuildSelect(JobStationVariant),
     ManageCharacters,
+    ManageCharacter { brain_index: usize },
 }
 
 impl MenuEntry {
@@ -77,9 +106,9 @@ impl MenuEntry {
             MenuEntry::Continue => Some(Sprite::MenuItemContinue),
             MenuEntry::Options => Some(Sprite::MenuItemOptions),
             MenuEntry::Build => Some(Sprite::MenuItemBuild),
-            MenuEntry::BuildSelectEnergy => None,
-            MenuEntry::BuildSelectOxygen => None,
+            MenuEntry::BuildSelect(_) => None,
             MenuEntry::ManageCharacters => Some(Sprite::MenuItemManageChars),
+            MenuEntry::ManageCharacter { .. } => None,
         }
     }
 }

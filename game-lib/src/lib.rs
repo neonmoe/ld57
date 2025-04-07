@@ -36,7 +36,7 @@ use game_object::{
 };
 use glam::Vec2;
 use grid::BitGrid;
-use menu::{Menu, MenuEntry, MenuMode};
+use menu::{Menu, MenuAction, MenuEntry, MenuMode};
 use notifications::NotificationSet;
 use platform::{ActionCategory, Event, InputDevice, Instant, Platform};
 use tilemap::{Tile, Tilemap};
@@ -82,6 +82,7 @@ enum Sprite {
     Energy,
     Magma,
     Pass,
+    PassSelectionOverlay,
     GoalRelax,
     GoalRelaxAlt,
     GoalHaul,
@@ -305,6 +306,7 @@ impl Game {
                     Energy,
                     Magma,
                     Pass,
+                    PassSelectionOverlay,
                     GoalRelax,
                     GoalRelaxAlt,
                     GoalHaul,
@@ -387,7 +389,6 @@ impl Game {
                 self.paused = true;
                 let mut menus = ArrayVec::new();
                 menus.push(Menu::main_menu());
-                menus.push(Menu::main_menu());
                 self.menu = Some(MenuMode::MenuStack(menus));
             }
 
@@ -401,25 +402,37 @@ impl Game {
                 }
             }
 
-            if let Some(top_menu) = self.menu.as_mut().and_then(|menus| {
+            if let Some(menus) = self.menu.as_mut().and_then(|menus| {
                 if let MenuMode::MenuStack(menus) = menus {
-                    menus.last_mut()
+                    Some(menus)
                 } else {
                     None
                 }
             }) {
-                if let Some(selected) = top_menu.update(input) {
-                    match selected {
-                        MenuEntry::Quit => platform.exit(true),
-                        MenuEntry::Continue => {
-                            self.paused = false;
-                            self.menu = None;
+                if let Some(top_menu) = menus.last_mut() {
+                    if let Some(selected) = top_menu.update(input) {
+                        match selected {
+                            (MenuEntry::Quit, MenuAction::Select) => platform.exit(true),
+                            (MenuEntry::Continue, MenuAction::Select) => {
+                                self.paused = false;
+                                self.menu = None;
+                            }
+                            (MenuEntry::Options, MenuAction::Select) => {} // TODO
+                            (MenuEntry::Build, MenuAction::Select) => {}   // TODO
+                            (MenuEntry::BuildSelect(_), MenuAction::Select) => {} // TODO
+                            (MenuEntry::ManageCharacters, MenuAction::Select) => {
+                                menus.push(Menu::manage_characters(self.brains.len()));
+                            }
+                            (MenuEntry::ManageCharacter { brain_index }, MenuAction::Previous) => {
+                                let job = &mut self.brains[brain_index].job;
+                                *job = job.previous();
+                            }
+                            (MenuEntry::ManageCharacter { brain_index }, MenuAction::Next) => {
+                                let job = &mut self.brains[brain_index].job;
+                                *job = job.next();
+                            }
+                            _ => {}
                         }
-                        MenuEntry::Options => {}
-                        MenuEntry::Build => {}
-                        MenuEntry::BuildSelectEnergy => {}
-                        MenuEntry::BuildSelectOxygen => {}
-                        MenuEntry::ManageCharacters => {}
                     }
                 }
             }
@@ -759,27 +772,59 @@ impl Game {
         let pass_sprite = engine
             .resource_db
             .get_sprite(self.sprites[Sprite::Pass as usize]);
+        let pass_selection_overlay_sprite = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::PassSelectionOverlay as usize]);
         self.scene
             .run_system(define_system!(|_, characters: &[CharacterStatus]| {
                 for (i, character) in characters.iter().enumerate() {
                     let brain = &self.brains[character.brain_index as usize];
 
-                    const MAX_DRAWS: usize = 1 // The pass background
-                        + 1 // Occupation field
+                    let selected_in_management = 'is_managed: {
+                        if let Some(MenuMode::MenuStack(menus)) = &self.menu {
+                            if let Some(top_menu) = menus.last() {
+                                if let MenuEntry::ManageCharacter { brain_index } =
+                                    top_menu.hover_entry()
+                                {
+                                    if brain_index == character.brain_index as usize {
+                                        break 'is_managed true;
+                                    }
+                                }
+                            }
+                        }
+                        false
+                    };
+
+                    const MAX_DRAWS: usize = 2 // The pass background and overlay
                         + 1 // Picture (and accessories, 0 currently)
-                        + CharacterStatus::MAX_OXYGEN.div_ceil(5) as usize
+                        + 1 // Occupation field
+                        + brain::MAX_GOALS
                         + CharacterStatus::MAX_MORALE.div_ceil(5) as usize
-                        + brain::MAX_GOALS;
+                        + CharacterStatus::MAX_OXYGEN.div_ceil(5) as usize;
                     let mut draws = ArrayVec::<_, MAX_DRAWS>::new();
 
-                    let pass_x = self.ui_camera.size.x / 2. - 5.7;
+                    let mut pass_x = self.ui_camera.size.x / 2. - 5.7;
                     let pass_y = -self.ui_camera.size.y / 2. + 0.2 + i as f32 * 3.7;
+
+                    if selected_in_management {
+                        pass_x -= 1.0;
+                    }
+
                     draws.push((
                         DrawLayer::Passes,
                         pass_sprite,
                         self.ui_camera
                             .to_output(Rect::xywh(pass_x, pass_y, 5.5, 3.5)),
                     ));
+
+                    if selected_in_management {
+                        draws.push((
+                            DrawLayer::PassInformation,
+                            pass_selection_overlay_sprite,
+                            self.ui_camera
+                                .to_output(Rect::xywh(pass_x, pass_y, 5.5, 3.5)),
+                        ));
+                    }
 
                     draws.extend(draw_counter(
                         &self.ui_camera,
@@ -869,12 +914,12 @@ impl Game {
             .get_sprite(self.sprites[Sprite::MenuUnderscore as usize]);
         match &self.menu {
             Some(MenuMode::MenuStack(menus)) => {
-                for (menu_i, menu) in menus.iter().enumerate() {
-                    let draw_layer = DrawLayer::Menu0 as u8 + menu_i as u8;
+                for (i, menu) in menus.iter().filter(|menu| menu.rendered).enumerate() {
+                    let draw_layer = DrawLayer::Menu0 as u8 + i as u8;
                     let menu_camera = Camera {
                         position: self.ui_camera.size / 2.
                             - Vec2::new(0.2, 0.2)
-                            - Vec2::new(2.0, 2.0) * (menu_i as f32),
+                            - Vec2::new(2.0, 2.0) * (i as f32),
                         size: self.ui_camera.size,
                         output_size: self.ui_camera.output_size,
                     };

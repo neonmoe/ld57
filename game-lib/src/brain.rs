@@ -65,12 +65,19 @@ impl Goal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Occupation {
     Idle,
     Hauler,
     Operator(JobStationVariant),
 }
+
+const OCCUPATION_LIST: [Occupation; 4] = [
+    Occupation::Idle,
+    Occupation::Hauler,
+    Occupation::Operator(JobStationVariant::ENERGY_GENERATOR),
+    Occupation::Operator(JobStationVariant::OXYGEN_GENERATOR),
+];
 
 impl Occupation {
     pub fn sprite(&self, _personality: Personality) -> Option<Sprite> {
@@ -84,6 +91,25 @@ impl Occupation {
                 Some(Sprite::OccupationWorkOxygen)
             }
             Occupation::Operator(_) => None,
+        }
+    }
+
+    pub fn previous(self) -> Occupation {
+        if let Some(idx) = OCCUPATION_LIST.iter().position(|occ| *occ == self) {
+            let len = OCCUPATION_LIST.len();
+            OCCUPATION_LIST[(idx + len - 1) % len]
+        } else {
+            debug_assert!(false, "unrecognized occupation: {self:?}");
+            Occupation::Idle
+        }
+    }
+
+    pub fn next(self) -> Occupation {
+        if let Some(idx) = OCCUPATION_LIST.iter().position(|occ| *occ == self) {
+            OCCUPATION_LIST[(idx + 1) % OCCUPATION_LIST.len()]
+        } else {
+            debug_assert!(false, "unrecognized occupation: {self:?}");
+            Occupation::Idle
         }
     }
 }

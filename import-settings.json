@@ -67,6 +67,11 @@
     },
     {
       "command": "add_sprite",
+      "name": "PassSelectionOverlay",
+      "file": "resources/sprites/pass-selection-overlay.png"
+    },
+    {
+      "command": "add_sprite",
       "name": "Number1",
       "file": "resources/sprites/number1.png"
     },
