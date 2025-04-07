@@ -63,8 +63,8 @@ enum DrawLayer {
     PassInformation,
     PassGoalPile,
     Menu0,
-    Menu1,
-    Menu2,
+    _Menu1,
+    _Menu2,
 }
 
 #[derive(Clone, Copy)]
@@ -259,6 +259,17 @@ impl Game {
             stockpile: Stockpile::zeroed().with_resource(ResourceVariant::MAGMA, 0, true),
             status: JobStationStatus {
                 variant: JobStationVariant::ENERGY_GENERATOR,
+                work_invested: 0,
+            },
+            collider: Collider::NOT_WALKABLE,
+        });
+        debug_assert!(job_station_spawned.is_ok());
+
+        let job_station_spawned = scene.spawn(JobStation {
+            position: TilePosition::new(9, 7),
+            stockpile: Stockpile::zeroed().with_resource(ResourceVariant::ENERGY, 0, true),
+            status: JobStationStatus {
+                variant: JobStationVariant::OXYGEN_GENERATOR,
                 work_invested: 0,
             },
             collider: Collider::NOT_WALKABLE,
@@ -505,7 +516,7 @@ impl Game {
             }
 
             let on_move_tick = self.current_tick % 3 == 0;
-            let on_work_tick = self.current_tick % 3 != 0;
+            let on_work_tick = self.current_tick % 2 == 0;
             let on_oxygen_and_morale_tick = self.current_tick % 100 == 0;
 
             // Set up this tick's working worker information
@@ -571,7 +582,7 @@ impl Game {
                                 if job.variant == *worker_job
                                     && worker_position.manhattan_distance(**pos) < 2
                                 {
-                                    if let Some(details) = job.details() {
+                                    if let Some(details) = job.variant.details() {
                                         let resources =
                                             stockpile.get_resources_mut(details.resource_variant);
                                         let current_amount =
@@ -914,12 +925,18 @@ impl Game {
             .get_sprite(self.sprites[Sprite::MenuUnderscore as usize]);
         match &self.menu {
             Some(MenuMode::MenuStack(menus)) => {
-                for (i, menu) in menus.iter().filter(|menu| menu.rendered).enumerate() {
-                    let draw_layer = DrawLayer::Menu0 as u8 + i as u8;
+                let last_menu_idx = menus.len().saturating_sub(1);
+                for (rendered_idx, (menu_idx, menu)) in menus
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, menu)| menu.rendered)
+                    .enumerate()
+                {
+                    let draw_layer = DrawLayer::Menu0 as u8 + rendered_idx as u8;
                     let menu_camera = Camera {
                         position: self.ui_camera.size / 2.
                             - Vec2::new(0.2, 0.2)
-                            - Vec2::new(2.0, 2.0) * (i as f32),
+                            - Vec2::new(2.0, 2.0) * (rendered_idx as f32),
                         size: self.ui_camera.size,
                         output_size: self.ui_camera.output_size,
                     };
@@ -963,7 +980,7 @@ impl Game {
                             debug_assert!(draw_success);
                         }
 
-                        if entry_idx == menu.hover_index() {
+                        if entry_idx == menu.hover_index() && menu_idx == last_menu_idx {
                             let draw_success = menu_underscore.draw(
                                 menu_camera.to_output(Rect::xywh(0.25, i as f32 + 0.8, 5.0, 0.1)),
                                 draw_layer,

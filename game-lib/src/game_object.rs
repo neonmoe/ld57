@@ -95,15 +95,37 @@ pub struct JobStationStatus {
     pub variant: JobStationVariant,
     pub work_invested: u8,
 }
-impl JobStationStatus {
+impl JobStationVariant {
     pub const fn details(self) -> Option<JobStationDetails> {
-        match self.variant {
+        match self {
             JobStationVariant::ENERGY_GENERATOR => Some(JobStationDetails {
                 resource_variant: ResourceVariant::MAGMA,
                 resource_amount: 3,
                 work_amount: 10,
                 output_variant: ResourceVariant::ENERGY,
                 output_amount: 1,
+            }),
+            JobStationVariant::OXYGEN_GENERATOR => Some(JobStationDetails {
+                resource_variant: ResourceVariant::ENERGY,
+                resource_amount: 5,
+                work_amount: 5,
+                output_variant: ResourceVariant::OXYGEN,
+                output_amount: {
+                    let energy_gen = JobStationVariant::ENERGY_GENERATOR.details().unwrap();
+                    let energy_req = 5u32;
+                    let work_req = 1u32;
+                    let work_ticks_per_oxygen_tick = 50u32;
+                    let gen_rounds_per_oxygen =
+                        energy_req.div_ceil(energy_gen.output_amount as u32);
+                    let work_ticks_per_output =
+                        gen_rounds_per_oxygen * energy_gen.work_amount as u32 + work_req;
+                    let oxygen_requirement_per_oxygen_tick =
+                        2 * CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT as u32;
+                    let minimum_oxygen_per_output =
+                        (oxygen_requirement_per_oxygen_tick * work_ticks_per_oxygen_tick
+                            / work_ticks_per_output) as u8;
+                    minimum_oxygen_per_output * 3 / 2
+                },
             }),
             _ => None,
         }
@@ -302,6 +324,7 @@ pub struct ResourceVariant(u8);
 define_consts_with_nice_debug!([ResourceVariant] {
     MAGMA: 1,
     ENERGY: 2,
+    OXYGEN: 3,
 });
 
 impl ResourceVariant {

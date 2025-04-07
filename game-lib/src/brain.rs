@@ -326,7 +326,7 @@ impl Brain {
                                 && current_position.manhattan_distance(**pos) < 2
                             {
                                 within_working_distance = true;
-                                if let Some(details) = job_station.details() {
+                                if let Some(details) = job_station.variant.details() {
                                     let resources =
                                         stockpile.get_resources_mut(details.resource_variant);
                                     let current_amount = resources.map(|a| *a).unwrap_or(0);
@@ -431,7 +431,7 @@ impl Brain {
                 scene.run_system(define_system!(
                     |_, positions: &[TilePosition], stockpiles: &mut [Stockpile]| {
                         for (position, stockpile) in positions.iter().zip(stockpiles) {
-                            if *position == current_position
+                            if position.manhattan_distance(*current_position) < 2
                                 && stockpile.has_non_reserved_resources(*resource)
                             {
                                 let stockpile_amount =
