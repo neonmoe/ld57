@@ -292,10 +292,10 @@ impl Brain {
                     self.goal_stack.push(Goal::RefillOxygen);
                     self.goal_stack.push(Goal::FollowPath { from, path });
                 } else {
-                    debug!("out of breath and there is oxygen but I can't get there :(");
+                    debug!("the tanks are runnign out but there's no oxygen to refill with :(");
                 }
             } else {
-                debug!("out of breath and there is no oxygen :(");
+                debug_assert!(false, "ran out of memory to find oxygen?");
             }
         }
 

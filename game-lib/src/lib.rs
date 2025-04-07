@@ -38,6 +38,7 @@ use glam::Vec2;
 use grid::BitGrid;
 use menu::{Menu, MenuAction, MenuEntry, MenuMode};
 use notifications::NotificationSet;
+use pathfinding::Direction;
 use platform::{ActionCategory, Event, InputDevice, Instant, Platform};
 use tilemap::{Tile, Tilemap};
 use tracing::debug;
@@ -227,7 +228,7 @@ impl Game {
         let mut scene = Scene::builder()
             .with_game_object_type::<Character>(MAX_CHARACTERS)
             .with_game_object_type::<JobStation>(100)
-            .with_game_object_type::<Resource>(1000)
+            .with_game_object_type::<Resource>(2000)
             .build(arena, &engine.frame_arena)
             .unwrap();
 
@@ -285,14 +286,29 @@ impl Game {
         });
         debug_assert!(job_station_spawned.is_ok());
 
-        for y in 4..7 {
-            for x in 1..4 {
-                let res_spawned = scene.spawn(Resource {
-                    position: TilePosition::new(x, y),
-                    stockpile: Stockpile::zeroed().with_resource(ResourceVariant::MAGMA, 2, false),
-                    stockpile_reliant: StockpileReliantTag {},
-                });
-                debug_assert!(res_spawned.is_ok());
+        let tilemap = Tilemap::new(arena, &engine.resource_db);
+        for y in 0..tilemap.tiles.height() as i16 {
+            for x in 0..tilemap.tiles.width() as i16 {
+                let position = TilePosition::new(x, y);
+                if matches!(tilemap.tiles[position], Tile::GeothermalVent) {
+                    for dir in Direction::ALL {
+                        let position = position + dir;
+                        if tilemap.tiles.in_bounds(position)
+                            && matches!(tilemap.tiles[position], Tile::Seafloor)
+                        {
+                            let res_spawned = scene.spawn(Resource {
+                                position,
+                                stockpile: Stockpile::zeroed().with_resource(
+                                    ResourceVariant::MAGMA,
+                                    2,
+                                    false,
+                                ),
+                                stockpile_reliant: StockpileReliantTag {},
+                            });
+                            debug_assert!(res_spawned.is_ok());
+                        }
+                    }
+                }
             }
         }
 
@@ -300,7 +316,7 @@ impl Game {
         main_menu.push(Menu::main_menu());
 
         Game {
-            tilemap: Tilemap::new(arena, &engine.resource_db),
+            tilemap,
             camera: Camera {
                 position: Vec2::new(7., 7.),
                 size: Vec2::ZERO,
@@ -482,6 +498,7 @@ impl Game {
             let on_move_tick = self.current_tick % 3 == 0;
             let on_work_tick = self.current_tick % 2 == 0;
             let on_oxygen_and_morale_tick = self.current_tick % 100 == 0;
+            let on_magma_spawn_tick = self.current_tick % 120 == 0;
 
             // Each tick can reuse the entire frame arena, since it's such a top level thing
             engine.frame_arena.reset();
@@ -503,7 +520,9 @@ impl Game {
             for y in 0..self.tilemap.tiles.height() {
                 for x in 0..self.tilemap.tiles.width() {
                     match self.tilemap.tiles[(x, y)] {
-                        Tile::Wall => walls.set(TilePosition::new(x as i16, y as i16), true),
+                        Tile::Wall | Tile::GeothermalVent => {
+                            walls.set(TilePosition::new(x as i16, y as i16), true)
+                        }
                         Tile::Seafloor => {}
                         Tile::_Count => debug_assert!(false, "Tile::_Count in the tilemap?"),
                     }
@@ -639,12 +658,32 @@ impl Game {
                 ));
             }
 
+            // Spawn magma
+            if on_magma_spawn_tick {
+                self.scene.run_system(define_system!(
+                    |_, stockpiles: &mut [Stockpile], positions: &[TilePosition]| {
+                        for (pos, stockpile) in positions.iter().zip(stockpiles) {
+                            for dir in Direction::ALL {
+                                let pos = *pos + dir;
+                                if self.tilemap.tiles.in_bounds(pos)
+                                    && matches!(self.tilemap.tiles[pos], Tile::GeothermalVent)
+                                {
+                                    let _ = stockpile.add_resource(ResourceVariant::MAGMA, 2);
+                                }
+                            }
+                        }
+                    }
+                ));
+            }
+
             // Clean up empty stockpiles
             if let Some(mut empty_piles) = FixedVec::<GameObjectHandle>::new(&temp_arena, 100) {
                 self.scene.run_system(define_system!(
                     |handles, stockpiles: &[Stockpile], _tags: &[StockpileReliantTag]| {
                         for (handle, stockpile) in handles.zip(stockpiles) {
-                            if stockpile.is_empty() {
+                            if stockpile.is_empty()
+                                && stockpile.get_resources(ResourceVariant::MAGMA).is_none()
+                            {
                                 let delete_result = empty_piles.push(handle);
                                 if delete_result.is_err() {
                                     break;

@@ -57,12 +57,7 @@ pub fn find_path_to_any(
     // always pushed to the back of the queue.
     while let Some(try_pos) = try_positions.pop_front() {
         // Try neighbors
-        for dir in [
-            Direction::Up,
-            Direction::Down,
-            Direction::Right,
-            Direction::Left,
-        ] {
+        for dir in Direction::ALL {
             let neighbor = try_pos + dir;
             if !walls.in_bounds(neighbor) || shortest_distance_to_pos[neighbor] != 0 {
                 continue; // Oout of bounds or already been there
@@ -108,6 +103,13 @@ pub enum Direction {
 }
 
 impl Direction {
+    pub const ALL: [Direction; 4] = [
+        Direction::Up,
+        Direction::Down,
+        Direction::Right,
+        Direction::Left,
+    ];
+
     const fn to_u8(self) -> u8 {
         match self {
             Direction::Up => 0b00,

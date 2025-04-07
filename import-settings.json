@@ -199,6 +199,11 @@
       "command": "add_sprite",
       "name": "OxygenGenerator",
       "file": "resources/sprites/oxygen-generator.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "GeothermalVent",
+      "file": "resources/sprites/geothermal-vent.png"
     }
   ]
 }

@@ -19,6 +19,7 @@ use crate::{DrawLayer, camera::Camera, grid::Grid};
 pub enum Tile {
     Seafloor,
     Wall,
+    GeothermalVent,
     _Count,
 }
 
@@ -34,7 +35,9 @@ impl Tilemap<'_> {
         for y in 0..height {
             for x in 0..width {
                 let noise = perlin_noise(Vec2::new(x as f32, y as f32) / 4.0);
-                tiles[(x, y)] = if noise > -0.2 {
+                tiles[(x, y)] = if noise > 0.6 {
+                    Tile::GeothermalVent
+                } else if noise > -0.2 {
                     Tile::Seafloor
                 } else {
                     Tile::Wall
@@ -42,7 +45,8 @@ impl Tilemap<'_> {
             }
         }
 
-        let tile_types: [Tile; Tile::_Count as usize] = [Tile::Seafloor, Tile::Wall];
+        let tile_types: [Tile; Tile::_Count as usize] =
+            [Tile::Seafloor, Tile::Wall, Tile::GeothermalVent];
         let mut tile_sprites = FixedVec::new(arena, Tile::_Count as usize).unwrap();
         for tile in tile_types {
             let mut name = ArrayString::<27>::new();
