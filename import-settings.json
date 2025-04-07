@@ -224,6 +224,16 @@
       "command": "add_sprite",
       "name": "SliderHandle",
       "file": "resources/sprites/slider-handle.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "Controls",
+      "file": "resources/sprites/controls.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "ControlsFlipConfirm",
+      "file": "resources/sprites/controls-flipconfirm.png"
     }
   ]
 }

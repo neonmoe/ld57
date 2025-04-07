@@ -73,6 +73,7 @@ enum DrawLayer {
     MenuItems,
     MenuFg,
     _ReserveThreeSetsOfMenus = DrawLayer::MenuFg as u8 + 6,
+    ControlsInfo,
 }
 
 #[derive(Clone, Copy)]
@@ -116,6 +117,8 @@ enum Sprite {
     OxygenGenerator,
     Oxygen,
     SliderHandle,
+    Controls,
+    ControlsFlipConfirm,
     _Count,
 }
 
@@ -374,6 +377,8 @@ impl Game {
                     OxygenGenerator,
                     Oxygen,
                     SliderHandle,
+                    Controls,
+                    ControlsFlipConfirm,
                 ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
@@ -749,8 +754,8 @@ impl Game {
         let aspect_ratio = draw_width / draw_height;
         self.camera.output_size = Vec2::new(draw_width, draw_height);
         self.camera.size = Vec2::new(aspect_ratio * 16., 16.);
-        self.ui_camera.output_size = self.camera.output_size;
-        self.ui_camera.size = self.camera.size;
+        self.ui_camera.output_size = Vec2::new(draw_width, draw_height);
+        self.ui_camera.size = Vec2::new(aspect_ratio * 16., 16.);
 
         let mut draw_queue = DrawQueue::new(&engine.frame_arena, 10_000, draw_scale).unwrap();
 
@@ -1124,6 +1129,26 @@ impl Game {
             }
             Some(MenuMode::BuildPlacement) => todo!("build placement rendering"),
             None => {}
+        }
+
+        let controls_info_sprite = engine.resource_db.get_sprite(
+            self.sprites[if self.flip_confirm_cancel {
+                Sprite::ControlsFlipConfirm
+            } else {
+                Sprite::Controls
+            } as usize],
+        );
+        {
+            let y = self.ui_camera.size.y / 2. - 2.2;
+            let draw_success = controls_info_sprite.draw(
+                self.ui_camera
+                    .to_output(Rect::xywh(-11. / 2., y, 11.0, 2.0)),
+                DrawLayer::ControlsInfo as u8,
+                &mut draw_queue,
+                &engine.resource_db,
+                &mut engine.resource_loader,
+            );
+            debug_assert!(draw_success);
         }
 
         draw_queue.dispatch_draw(&engine.frame_arena, platform);
