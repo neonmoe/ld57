@@ -4,6 +4,7 @@ mod brain;
 mod camera;
 mod game_object;
 mod grid;
+mod menu;
 mod notifications;
 mod pathfinding;
 mod tilemap;
@@ -35,6 +36,7 @@ use game_object::{
 };
 use glam::Vec2;
 use grid::BitGrid;
+use menu::{Menu, MenuEntry, MenuMode};
 use notifications::NotificationSet;
 use platform::{ActionCategory, Event, InputDevice, Instant, Platform};
 use tilemap::{Tile, Tilemap};
@@ -60,6 +62,9 @@ enum DrawLayer {
     Passes,
     PassInformation,
     PassGoalPile,
+    Menu0,
+    Menu1,
+    Menu2,
 }
 
 #[derive(Clone, Copy)]
@@ -85,6 +90,15 @@ enum Sprite {
     OccupationHauler,
     OccupationWorkEnergy,
     OccupationWorkOxygen,
+    MenuBgTop,
+    MenuBgMid,
+    MenuBgBot,
+    MenuUnderscore,
+    MenuItemContinue,
+    MenuItemQuit,
+    MenuItemOptions,
+    MenuItemManageChars,
+    MenuItemBuild,
     _Count,
 }
 
@@ -187,6 +201,7 @@ pub struct Game {
     flip_confirm_cancel: bool,
     input: Option<InputDeviceState<{ Button::_Count as usize }>>,
     paused: bool,
+    menu: Option<MenuMode>,
 }
 
 impl Game {
@@ -260,6 +275,9 @@ impl Game {
             }
         }
 
+        let mut main_menu = ArrayVec::new();
+        main_menu.push(Menu::main_menu());
+
         Game {
             tilemap: Tilemap::new(arena, &engine.resource_db),
             camera: Camera {
@@ -295,6 +313,15 @@ impl Game {
                     OccupationHauler,
                     OccupationWorkEnergy,
                     OccupationWorkOxygen,
+                    MenuBgTop,
+                    MenuBgMid,
+                    MenuBgBot,
+                    MenuUnderscore,
+                    MenuItemContinue,
+                    MenuItemQuit,
+                    MenuItemOptions,
+                    MenuItemManageChars,
+                    MenuItemBuild,
                 ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
@@ -327,7 +354,8 @@ impl Game {
             last_music_clip_start: platform.now() - Duration::from_secs(10000),
             flip_confirm_cancel: false,
             input: None,
-            paused: false,
+            paused: true,
+            menu: Some(MenuMode::MenuStack(main_menu)),
         }
     }
 
@@ -355,8 +383,45 @@ impl Game {
         if let Some(input) = &mut self.input {
             input.update(&mut engine.event_queue);
 
-            if input.actions[Button::OpenMenu as usize].pressed {
-                self.paused = !self.paused;
+            if input.actions[Button::OpenMenu as usize].pressed && !self.paused {
+                self.paused = true;
+                let mut menus = ArrayVec::new();
+                menus.push(Menu::main_menu());
+                menus.push(Menu::main_menu());
+                self.menu = Some(MenuMode::MenuStack(menus));
+            }
+
+            if input.actions[Button::Cancel as usize].pressed {
+                if let Some(MenuMode::MenuStack(menus)) = &mut self.menu {
+                    menus.pop();
+                    if menus.is_empty() {
+                        self.menu = None;
+                        self.paused = false;
+                    }
+                }
+            }
+
+            if let Some(top_menu) = self.menu.as_mut().and_then(|menus| {
+                if let MenuMode::MenuStack(menus) = menus {
+                    menus.last_mut()
+                } else {
+                    None
+                }
+            }) {
+                if let Some(selected) = top_menu.update(input) {
+                    match selected {
+                        MenuEntry::Quit => platform.exit(true),
+                        MenuEntry::Continue => {
+                            self.paused = false;
+                            self.menu = None;
+                        }
+                        MenuEntry::Options => {}
+                        MenuEntry::Build => {}
+                        MenuEntry::BuildSelectEnergy => {}
+                        MenuEntry::BuildSelectOxygen => {}
+                        MenuEntry::ManageCharacters => {}
+                    }
+                }
             }
 
             if !self.paused {
@@ -372,6 +437,9 @@ impl Game {
 
         while timestamp >= self.next_tick_time {
             self.next_tick_time = self.next_tick_time + Duration::from_millis(MILLIS_PER_TICK);
+            if self.paused {
+                continue;
+            }
             self.current_tick += 1;
 
             // Each tick can reuse the entire frame arena, since it's such a top level thing
@@ -544,7 +612,7 @@ impl Game {
         // Music:
 
         if let Some(duration) = timestamp.duration_since(self.last_music_clip_start) {
-            if duration > Duration::from_secs(45) {
+            if duration > Duration::from_secs(45) && !self.paused {
                 let time_ms = timestamp
                     .duration_since(Instant::reference())
                     .unwrap_or_else(|| Instant::reference().duration_since(timestamp).unwrap())
@@ -705,7 +773,7 @@ impl Game {
                     let mut draws = ArrayVec::<_, MAX_DRAWS>::new();
 
                     let pass_x = self.ui_camera.size.x / 2. - 5.7;
-                    let pass_y = -self.ui_camera.size.y / 2. + 0.5 + i as f32 * 3.7;
+                    let pass_y = -self.ui_camera.size.y / 2. + 0.2 + i as f32 * 3.7;
                     draws.push((
                         DrawLayer::Passes,
                         pass_sprite,
@@ -739,10 +807,10 @@ impl Game {
                                 DrawLayer::PassGoalPile,
                                 sprite,
                                 self.ui_camera.to_output(Rect::xywh(
-                                    pass_x + 0.2 + 0.01 * i as f32,
-                                    pass_y + 1.65 + 0.01 * i as f32,
-                                    3.3,
-                                    1.6,
+                                    pass_x + 0.2 + 0.2 * i as f32,
+                                    pass_y + 1.65 + 0.1 * i as f32,
+                                    3.3 / 2.,
+                                    1.6 / 2.,
                                 )),
                             ));
                         }
@@ -785,6 +853,87 @@ impl Game {
                     }
                 }
             }));
+
+        // Menus
+        let menu_background_top = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::MenuBgTop as usize]);
+        let menu_background_mid = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::MenuBgMid as usize]);
+        let menu_background_bot = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::MenuBgBot as usize]);
+        let menu_underscore = engine
+            .resource_db
+            .get_sprite(self.sprites[Sprite::MenuUnderscore as usize]);
+        match &self.menu {
+            Some(MenuMode::MenuStack(menus)) => {
+                for (menu_i, menu) in menus.iter().enumerate() {
+                    let draw_layer = DrawLayer::Menu0 as u8 + menu_i as u8;
+                    let menu_camera = Camera {
+                        position: self.ui_camera.size / 2.
+                            - Vec2::new(0.2, 0.2)
+                            - Vec2::new(2.0, 2.0) * (menu_i as f32),
+                        size: self.ui_camera.size,
+                        output_size: self.ui_camera.output_size,
+                    };
+
+                    for (i, bg) in [menu_background_top]
+                        .into_iter()
+                        .chain(
+                            [menu_background_mid]
+                                .into_iter()
+                                .cycle()
+                                .take(menu.len())
+                                .chain([menu_background_bot]),
+                        )
+                        .enumerate()
+                    {
+                        let draw_success = bg.draw(
+                            menu_camera.to_output(Rect::xywh(0.0, i as f32, 5.5, 1.0)),
+                            draw_layer,
+                            &mut draw_queue,
+                            &engine.resource_db,
+                            &mut engine.resource_loader,
+                        );
+                        debug_assert!(draw_success);
+
+                        let entry_idx = if i > 0 && i - 1 < menu.len() {
+                            i - 1
+                        } else {
+                            continue;
+                        };
+
+                        if let Some(sprite) = menu.sprite(entry_idx) {
+                            let sprite =
+                                engine.resource_db.get_sprite(self.sprites[sprite as usize]);
+                            let draw_success = sprite.draw(
+                                menu_camera.to_output(Rect::xywh(0.25, i as f32 + 0.2, 5.0, 0.6)),
+                                draw_layer,
+                                &mut draw_queue,
+                                &engine.resource_db,
+                                &mut engine.resource_loader,
+                            );
+                            debug_assert!(draw_success);
+                        }
+
+                        if entry_idx == menu.hover_index() {
+                            let draw_success = menu_underscore.draw(
+                                menu_camera.to_output(Rect::xywh(0.25, i as f32 + 0.8, 5.0, 0.1)),
+                                draw_layer,
+                                &mut draw_queue,
+                                &engine.resource_db,
+                                &mut engine.resource_loader,
+                            );
+                            debug_assert!(draw_success);
+                        }
+                    }
+                }
+            }
+            Some(MenuMode::BuildPlacement) => todo!("build placement rendering"),
+            None => {}
+        }
 
         draw_queue.dispatch_draw(&engine.frame_arena, platform);
     }

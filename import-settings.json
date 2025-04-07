@@ -129,6 +129,51 @@
       "command": "add_sprite",
       "name": "OccupationWorkOxygen",
       "file": "resources/sprites/occupation-work-at-oxygen-generator.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuBgTop",
+      "file": "resources/sprites/menu-top.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuBgMid",
+      "file": "resources/sprites/menu-mid.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuBgBot",
+      "file": "resources/sprites/menu-bot.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuUnderscore",
+      "file": "resources/sprites/menu-underscore.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemContinue",
+      "file": "resources/sprites/menuitem-continue.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemQuit",
+      "file": "resources/sprites/menuitem-quit.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemOptions",
+      "file": "resources/sprites/menuitem-options.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemManageChars",
+      "file": "resources/sprites/menuitem-manage-characters.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "MenuItemBuild",
+      "file": "resources/sprites/menuitem-build.png"
     }
   ]
 }
