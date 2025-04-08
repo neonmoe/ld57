@@ -8,7 +8,15 @@ fn main() {
     #[cfg(feature = "tracing-subscriber")]
     tracing_subscriber::fmt::init();
 
-    let platform = Sdl2Platform::new("game"); // TODO: come up with a name
+    #[cfg(not(feature = "embed-resources-db"))]
+    let platform = Sdl2Platform::new("Diving for Oxygen");
+
+    #[cfg(feature = "embed-resources-db")]
+    let platform = {
+        let mut platform = Sdl2Platform::new("Diving for Oxygen");
+        platform.embed_file("resources.db", include_bytes!("../../resources.db"));
+        platform
+    };
 
     static ARENA: &LinearAllocator = static_allocator!(16 * 1024 * 1024);
     let mut engine = Engine::new(

@@ -17,10 +17,11 @@ sdl-bundled = ["sdl2/bundled"]
 sdl-static-link = ["sdl2/static-link"]
 sdl-use-vcpkg = ["sdl2/use-vcpkg"]
 tracing-subscriber = ["dep:tracing-subscriber"]
+embed-resources-db = []
 
 [package.metadata.bundle]
-name = "Game"
-identifier = "moe.neon.ld57"
+name = "Diving for Oxygen"
+identifier = "moe.neon.oxygen"
 osx_minimum_system_version = "10.12"
 
 # vcpkg configs for building on windows. The windows runner appears to

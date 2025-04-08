@@ -30,9 +30,9 @@ jobs:
         ./emsdk activate latest
         source ./emsdk_env.sh
         cd ..
-        cargo build --release --target wasm32-unknown-emscripten
+        cargo build --release --target wasm32-unknown-emscripten --features=embed-resources-db
       env:
-        EMCC_CFLAGS: -sSTACK_SIZE=20000000 -sUSE_SDL=2 -sASYNCIFY --embed-file=resources.db
+        EMCC_CFLAGS: -sSTACK_SIZE=20000000 -sUSE_SDL=2 -sASYNCIFY
     - name: Create artifact
       run: |
         mkdir dist
@@ -42,7 +42,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: game-web
+        name: diving-for-oxygen-web
         path: dist/
   build-linux:
     runs-on: ubuntu-22.04
@@ -59,12 +59,12 @@ jobs:
       run: |
         strip target/release/game-bin
         mkdir dist
-        mv target/release/game-bin dist
+        mv target/release/game-bin dist/diving-for-oxygen
         mv resources.db dist
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: game-linux
+        name: diving-for-oxygen-linux
         path: dist/
   build-windows:
     runs-on: windows-latest
@@ -79,10 +79,30 @@ jobs:
     - name: Create artifact
       run: |
         mkdir dist
-        mv target/release/game-bin.exe dist/game-bin.exe
+        mv target/release/game-bin.exe dist/diving-for-oxygen.exe
         mv resources.db dist/resources.db
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: game-windows
+        name: diving-for-oxygen-windows
+        path: dist/
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release --features=sdl-bundled,sdl-static-link,embed-resources-db
+    - name: Install cargo-bundle
+      run: cargo install cargo-bundle
+    - name: Create artifact
+      # REMINDER: In addition to renaming the executable, also rename the app and [package.metadata.bundle]
+      run: |
+        cargo bundle --release --features=sdl-bundled,sdl-static-link,embed-resources-db
+        strip "target/release/bundle/osx/Diving for Oxygen.app/Contents/MacOS/game-bin"
+        mkdir dist
+        mv "target/release/bundle/osx/Diving for Oxygen.app" "dist/Diving for Oxygen.app"
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: diving-for-oxygen-macos
         path: dist/
