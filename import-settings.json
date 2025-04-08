@@ -234,6 +234,26 @@
       "command": "add_sprite",
       "name": "ControlsFlipConfirm",
       "file": "resources/sprites/controls-flipconfirm.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "AccessoryBowtie",
+      "file": "resources/sprites/accessory-bowtie.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "AccessoryCap",
+      "file": "resources/sprites/accessory-cap.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "AccessoryPaint",
+      "file": "resources/sprites/accessory-paint.png"
+    },
+    {
+      "command": "add_sprite",
+      "name": "AccessoryShine",
+      "file": "resources/sprites/accessory-shine.png"
     }
   ]
 }

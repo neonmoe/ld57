@@ -59,6 +59,7 @@ enum DrawLayer {
     _ReserveFiveLooseStockpiles = DrawLayer::LooseStockpiles as u8 + STOCKPILE_VISUALIZED_COUNT,
     CharacterSuits,
     CharacterHelmets,
+    CharacterAccessories,
     JobStations,
     JobStationStockpiles,
     _ReserveFiveJobStationStockpiles =
@@ -69,6 +70,7 @@ enum DrawLayer {
     Passes,
     PassInformation,
     PassGoalPile,
+    PassPictureAccessory,
     MenuBg,
     MenuItems,
     MenuFg,
@@ -119,6 +121,10 @@ enum Sprite {
     SliderHandle,
     Controls,
     ControlsFlipConfirm,
+    AccessoryBowtie,
+    AccessoryCap,
+    AccessoryPaint,
+    AccessoryShine,
     _Count,
 }
 
@@ -210,10 +216,10 @@ pub struct Game {
     ui_camera: Camera,
     scene: Scene<'static>,
     brains: FixedVec<'static, Brain>,
+    accessories: FixedVec<'static, Sprite>,
     haul_notifications: NotificationSet<'static, HaulDescription>,
     current_tick: u64,
     next_tick_time: Instant,
-    last_frame_timestamp: Instant,
     sprites: ArrayVec<SpriteHandle, { Sprite::_Count as usize }>,
     number_sprites: ArrayVec<SpriteHandle, 5>,
     music_clips: ArrayVec<AudioClipHandle, 4>,
@@ -240,6 +246,12 @@ impl Game {
         brains[1].wait_ticks = 20;
         brains[2].wait_ticks = 40;
         brains[3].wait_ticks = 30;
+
+        let mut accessories = FixedVec::new(arena, MAX_CHARACTERS).unwrap();
+        accessories.push(Sprite::AccessoryShine).unwrap();
+        accessories.push(Sprite::AccessoryBowtie).unwrap();
+        accessories.push(Sprite::AccessoryCap).unwrap();
+        accessories.push(Sprite::AccessoryPaint).unwrap();
 
         let characters = [
             CharacterStatus {
@@ -392,10 +404,10 @@ impl Game {
             },
             scene,
             brains,
+            accessories,
             haul_notifications,
             current_tick: 0,
             next_tick_time: platform.now(),
-            last_frame_timestamp: platform.now(),
             sprites: {
                 use Sprite::*;
                 let sprite_enums: [Sprite; Sprite::_Count as usize] = [
@@ -433,6 +445,10 @@ impl Game {
                     SliderHandle,
                     Controls,
                     ControlsFlipConfirm,
+                    AccessoryBowtie,
+                    AccessoryCap,
+                    AccessoryPaint,
+                    AccessoryShine,
                 ];
                 let mut sprites = ArrayVec::new();
                 for sprite in sprite_enums {
@@ -471,12 +487,6 @@ impl Game {
     }
 
     pub fn iterate(&mut self, engine: &mut Engine, platform: &dyn Platform, timestamp: Instant) {
-        let dt_real = timestamp
-            .duration_since(self.last_frame_timestamp)
-            .map(|d| d.as_secs_f32())
-            .unwrap_or(0.0);
-        self.last_frame_timestamp = timestamp;
-
         // Handle input:
 
         if let Some(event) = engine.event_queue.last() {
@@ -916,17 +926,21 @@ impl Game {
             .resource_db
             .get_sprite(self.sprites[Sprite::Suit as usize]);
         self.scene.run_system(define_system!(
-            |_, tile_positions: &[TilePosition], _characters: &[CharacterStatus]| {
-                for tile_pos in tile_positions {
-                    let helmet = (
-                        DrawLayer::CharacterHelmets,
-                        helmet_sprite,
-                        self.camera.to_output(Rect::xywh(
-                            tile_pos.x as f32 + 0.5 / 2.,
-                            tile_pos.y as f32 - 0.2 / 3.,
-                            1. / 2.,
-                            1. / 2.,
-                        )),
+            |_, tile_positions: &[TilePosition], characters: &[CharacterStatus]| {
+                for (tile_pos, character) in tile_positions.iter().zip(characters) {
+                    let helmet_rect = self.camera.to_output(Rect::xywh(
+                        tile_pos.x as f32 + 0.5 / 2.,
+                        tile_pos.y as f32 - 0.2 / 3.,
+                        1. / 2.,
+                        1. / 2.,
+                    ));
+                    let helmet = (DrawLayer::CharacterHelmets, helmet_sprite, helmet_rect);
+                    let accessory_sprite =
+                        self.sprites[self.accessories[character.brain_index as usize] as usize];
+                    let accessory = (
+                        DrawLayer::CharacterAccessories,
+                        engine.resource_db.get_sprite(accessory_sprite),
+                        helmet_rect,
                     );
                     let suit = (
                         DrawLayer::CharacterSuits,
@@ -938,7 +952,7 @@ impl Game {
                             1.,
                         )),
                     );
-                    for (layer, sprite, dst) in [helmet, suit] {
+                    for (layer, sprite, dst) in [helmet, accessory, suit] {
                         let draw_success = sprite.draw(
                             dst,
                             layer as u8,
@@ -980,7 +994,7 @@ impl Game {
                     };
 
                     const MAX_DRAWS: usize = 2 // The pass background and overlay
-                        + 1 // Picture (and accessories, 0 currently)
+                        + 2 // Picture and accessory
                         + 1 // Occupation field
                         + brain::MAX_GOALS
                         + CharacterStatus::MAX_MORALE.div_ceil(5) as usize
@@ -1059,15 +1073,19 @@ impl Game {
                         ));
                     }
 
+                    let helmet_rect = self.ui_camera.to_output(Rect::xywh(
+                        pass_x + 0.28,
+                        pass_y + 0.31,
+                        1.28,
+                        1.28,
+                    ));
+                    draws.push((DrawLayer::PassInformation, helmet_sprite, helmet_rect));
+                    let accessory_sprite =
+                        self.sprites[self.accessories[character.brain_index as usize] as usize];
                     draws.push((
-                        DrawLayer::PassInformation,
-                        helmet_sprite,
-                        self.ui_camera.to_output(Rect::xywh(
-                            pass_x + 0.28,
-                            pass_y + 0.31,
-                            1.28,
-                            1.28,
-                        )),
+                        DrawLayer::PassPictureAccessory,
+                        engine.resource_db.get_sprite(accessory_sprite),
+                        helmet_rect,
                     ));
 
                     for (layer, sprite, dst) in draws {
