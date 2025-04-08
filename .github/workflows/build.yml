@@ -32,7 +32,7 @@ jobs:
         cd ..
         cargo build --release --target wasm32-unknown-emscripten
       env:
-        EMCC_CFLAGS: -sSTACK_SIZE=1000000 -sUSE_SDL=2 -sASYNCIFY --embed-file=resources.db
+        EMCC_CFLAGS: -sSTACK_SIZE=20000000 -sUSE_SDL=2 -sASYNCIFY --embed-file=resources.db
     - name: Create artifact
       run: |
         mkdir dist

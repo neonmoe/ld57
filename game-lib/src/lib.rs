@@ -12,7 +12,7 @@ mod tilemap;
 use core::{fmt::Write, time::Duration};
 
 use arrayvec::{ArrayString, ArrayVec};
-use brain::{Brain, HaulDescription, Occupation};
+use brain::{Brain, HaulDescription};
 use bytemuck::Zeroable;
 use camera::Camera;
 use engine::{

@@ -1,4 +1,4 @@
-use std::{alloc::System, time::SystemTime};
+use std::time::SystemTime;
 
 use engine::{Engine, EngineLimits, allocators::LinearAllocator, static_allocator};
 use game_lib::Game;
@@ -10,13 +10,13 @@ fn main() {
 
     let platform = Sdl2Platform::new("game"); // TODO: come up with a name
 
-    static ARENA: &LinearAllocator = static_allocator!(8 * 1024 * 1024);
+    static ARENA: &LinearAllocator = static_allocator!(16 * 1024 * 1024);
     let mut engine = Engine::new(
         &platform,
         ARENA,
         EngineLimits {
-            frame_arena_size: 2 * 1024 * 1024,
-            resource_database_loaded_chunks_count: 32,
+            frame_arena_size: 4 * 1024 * 1024,
+            resource_database_loaded_chunks_count: 64,
             resource_database_buffer_size: 1024 * 1024,
             ..EngineLimits::DEFAULT
         },
