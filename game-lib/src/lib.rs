@@ -929,10 +929,10 @@ impl Game {
             |_, tile_positions: &[TilePosition], characters: &[CharacterStatus]| {
                 for (tile_pos, character) in tile_positions.iter().zip(characters) {
                     let helmet_rect = self.camera.to_output(Rect::xywh(
-                        tile_pos.x as f32 + 0.5 / 2.,
-                        tile_pos.y as f32 - 0.2 / 3.,
-                        1. / 2.,
-                        1. / 2.,
+                        tile_pos.x as f32 + 0.25 / 2.,
+                        tile_pos.y as f32 - 0.1,
+                        0.75,
+                        0.75,
                     ));
                     let helmet = (DrawLayer::CharacterHelmets, helmet_sprite, helmet_rect);
                     let accessory_sprite =
@@ -946,10 +946,10 @@ impl Game {
                         DrawLayer::CharacterSuits,
                         suit_sprite,
                         self.camera.to_output(Rect::xywh(
-                            tile_pos.x as f32 + 0. / 3.,
-                            tile_pos.y as f32 + 0. / 3.,
-                            1.,
-                            1.,
+                            tile_pos.x as f32 + (1. - 0.75) / 2.,
+                            tile_pos.y as f32 + 0.25,
+                            0.75,
+                            0.75,
                         )),
                     );
                     for (layer, sprite, dst) in [helmet, accessory, suit] {
