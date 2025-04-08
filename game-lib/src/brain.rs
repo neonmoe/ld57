@@ -697,9 +697,9 @@ impl Brain {
                     goal_finished = true;
                 } else {
                     // Try to find a spot to walk to:
-                    let x = (rand >> 32) % walk_aabb.0.x.abs_diff(walk_aabb.1.x) as u64;
+                    let x = (rand & 0xFFFFFFFF) % walk_aabb.0.x.abs_diff(walk_aabb.1.x) as u64;
                     let y = (rand >> 32) % walk_aabb.0.y.abs_diff(walk_aabb.1.y) as u64;
-                    let dst = TilePosition::new(x as i16, y as i16);
+                    let dst = TilePosition::new(walk_aabb.0.x + x as i16, walk_aabb.0.y + y as i16);
                     let from = current_position;
                     if let Some(path) = find_path_to(from, dst, true, walls, temp_arena) {
                         new_instrumental_goal = Some(Goal::FollowPath { from, path });

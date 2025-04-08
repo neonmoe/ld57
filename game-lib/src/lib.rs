@@ -225,12 +225,60 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(arena: &'static LinearAllocator, engine: &Engine, platform: &dyn Platform) -> Game {
+    pub fn new(
+        arena: &'static LinearAllocator,
+        engine: &Engine,
+        platform: &dyn Platform,
+        seed: u64,
+    ) -> Game {
         let mut brains = FixedVec::new(arena, MAX_CHARACTERS).unwrap();
         brains.push(Brain::new()).unwrap();
         brains.push(Brain::new()).unwrap();
-        brains[0].job = Occupation::Operator(JobStationVariant::ENERGY_GENERATOR);
-        brains[1].job = Occupation::Hauler;
+        brains.push(Brain::new()).unwrap();
+        brains.push(Brain::new()).unwrap();
+        brains[0].wait_ticks = 50;
+        brains[1].wait_ticks = 20;
+        brains[2].wait_ticks = 40;
+        brains[3].wait_ticks = 30;
+
+        let characters = [
+            CharacterStatus {
+                brain_index: 0,
+                oxygen: CharacterStatus::MAX_OXYGEN,
+                morale: CharacterStatus::MAX_MORALE - 3,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT,
+                personality: Personality::zeroed(),
+            },
+            CharacterStatus {
+                brain_index: 1,
+                oxygen: CharacterStatus::MAX_OXYGEN - 3,
+                morale: CharacterStatus::MAX_MORALE,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT + 2,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT + 2,
+                personality: Personality::KAOMOJI,
+            },
+            CharacterStatus {
+                brain_index: 2,
+                oxygen: CharacterStatus::MAX_OXYGEN - 1,
+                morale: CharacterStatus::MAX_MORALE - 2,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT - 1,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT - 1,
+                personality: Personality::zeroed(),
+            },
+            CharacterStatus {
+                brain_index: 3,
+                oxygen: CharacterStatus::MAX_OXYGEN - 2,
+                morale: CharacterStatus::MAX_MORALE - 1,
+                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT + 1,
+                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
+                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT + 2,
+                personality: Personality::KAOMOJI,
+            },
+        ];
 
         let haul_notifications = NotificationSet::new(arena, 128).unwrap();
 
@@ -241,40 +289,46 @@ impl Game {
             .build(arena, &engine.frame_arena)
             .unwrap();
 
-        let char_spawned = scene.spawn(Character {
-            status: CharacterStatus {
-                brain_index: 0,
-                oxygen: CharacterStatus::MAX_OXYGEN,
-                morale: CharacterStatus::MAX_MORALE - 1,
-                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
-                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT,
-                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT,
-                personality: Personality::zeroed(),
-            },
-            position: TilePosition::new(5, 1),
-            held: Stockpile::zeroed(),
-            collider: Collider::NOT_WALKABLE,
-        });
-        debug_assert!(char_spawned.is_ok());
+        let mut tilemap = Tilemap::new(arena, &engine.resource_db, seed);
+        let start_pos = 'pick_start_pos: {
+            let (w, h) = tilemap.tiles.size();
+            for y in h / 2 - 8..h / 2 + 8 {
+                for x in w / 2 - 8..w / 2 + 8 {
+                    if matches!(tilemap.tiles[(x, y)], Tile::Seafloor) {
+                        break 'pick_start_pos TilePosition::new(x as i16, y as i16);
+                    }
+                }
+            }
+            TilePosition::new(64, 64)
+        };
 
-        let char_spawned = scene.spawn(Character {
-            status: CharacterStatus {
-                brain_index: 1,
-                oxygen: CharacterStatus::MAX_OXYGEN - 2,
-                morale: CharacterStatus::MAX_MORALE,
-                oxygen_depletion_amount: CharacterStatus::BASE_OXYGEN_DEPLETION_AMOUNT,
-                morale_depletion_amount: CharacterStatus::BASE_MORALE_DEPLETION_AMOUNT + 2,
-                morale_relaxing_increment: CharacterStatus::BASE_MORALE_RELAXING_INCREMENT + 2,
-                personality: Personality::KAOMOJI,
-            },
-            position: TilePosition::new(6, 4),
-            held: Stockpile::zeroed(),
-            collider: Collider::NOT_WALKABLE,
-        });
-        debug_assert!(char_spawned.is_ok());
+        // Spawn characters around start position
+        for (i, character) in characters.into_iter().enumerate() {
+            let x = start_pos.x - 1 + i as i16;
+            let y = start_pos.y - 1 + ((i as i16 * 3 + 3) % 5);
+            let position = TilePosition::new(x, y);
+            let char_spawned = scene.spawn(Character {
+                status: character,
+                position,
+                held: Stockpile::zeroed(),
+                collider: Collider::NOT_WALKABLE,
+            });
+            debug_assert!(char_spawned.is_ok());
+        }
 
+        // Clear a start area
+        for y in start_pos.y - 4..start_pos.y + 4 {
+            for x in start_pos.x - 4..start_pos.x + 4 {
+                let pos = TilePosition::new(x, y);
+                tilemap.tiles[pos] = Tile::Seafloor;
+            }
+        }
+        tilemap.tiles[start_pos + Direction::Left + Direction::Up + Direction::Up] =
+            Tile::GeothermalVent;
+
+        // Place the machines (TODO: remove after building is possible)
         let job_station_spawned = scene.spawn(JobStation {
-            position: TilePosition::new(7, 7),
+            position: TilePosition::new(start_pos.x - 4, start_pos.y + 2),
             stockpile: Stockpile::zeroed().with_resource(ResourceVariant::MAGMA, 0, true),
             status: JobStationStatus {
                 variant: JobStationVariant::ENERGY_GENERATOR,
@@ -285,7 +339,7 @@ impl Game {
         debug_assert!(job_station_spawned.is_ok());
 
         let job_station_spawned = scene.spawn(JobStation {
-            position: TilePosition::new(9, 7),
+            position: TilePosition::new(start_pos.x, start_pos.y - 4),
             stockpile: Stockpile::zeroed().with_resource(ResourceVariant::ENERGY, 0, true),
             status: JobStationStatus {
                 variant: JobStationVariant::OXYGEN_GENERATOR,
@@ -295,7 +349,7 @@ impl Game {
         });
         debug_assert!(job_station_spawned.is_ok());
 
-        let tilemap = Tilemap::new(arena, &engine.resource_db);
+        // Spawn magma resources
         for y in 0..tilemap.tiles.height() as i16 {
             for x in 0..tilemap.tiles.width() as i16 {
                 let position = TilePosition::new(x, y);
@@ -327,7 +381,7 @@ impl Game {
         Game {
             tilemap,
             camera: Camera {
-                position: Vec2::new(7., 7.),
+                position: Vec2::new(start_pos.x as f32, start_pos.y as f32),
                 size: Vec2::ZERO,
                 output_size: Vec2::ZERO,
             },
@@ -711,6 +765,7 @@ impl Game {
                     |handles, stockpiles: &[Stockpile], _tags: &[StockpileReliantTag]| {
                         for (handle, stockpile) in handles.zip(stockpiles) {
                             if stockpile.is_empty()
+                            // Don't despawn renewable magma
                                 && stockpile.get_resources(ResourceVariant::MAGMA).is_none()
                             {
                                 let delete_result = empty_piles.push(handle);

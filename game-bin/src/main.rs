@@ -1,3 +1,5 @@
+use std::{alloc::System, time::SystemTime};
+
 use engine::{Engine, EngineLimits, allocators::LinearAllocator, static_allocator};
 use game_lib::Game;
 use platform_sdl2::Sdl2Platform;
@@ -19,7 +21,11 @@ fn main() {
             ..EngineLimits::DEFAULT
         },
     );
-    let mut game = Game::new(ARENA, &engine, &platform);
+    let seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|t| t.as_secs())
+        .unwrap_or(0);
+    let mut game = Game::new(ARENA, &engine, &platform, seed);
 
     platform.run_game_loop(&mut engine, |timestamp, platform, engine| {
         game.iterate(engine, platform, timestamp);

@@ -29,12 +29,20 @@ pub struct Tilemap<'a> {
 }
 
 impl Tilemap<'_> {
-    pub fn new<'a>(arena: &'a LinearAllocator, resources: &ResourceDatabase) -> Tilemap<'a> {
+    pub fn new<'a>(
+        arena: &'a LinearAllocator,
+        resources: &ResourceDatabase,
+        seed: u64,
+    ) -> Tilemap<'a> {
+        let rand = seahash::hash(&seed.to_le_bytes());
+        let x_off = (rand & 0xFFFF) as f32;
+        let y_off = ((rand >> 16) & 0xFFFF) as f32;
+
         let (width, height) = (128, 128);
         let mut tiles = Grid::new_zeroed(arena, (width, height)).unwrap();
         for y in 0..height {
             for x in 0..width {
-                let noise = perlin_noise(Vec2::new(x as f32, y as f32) / 4.0);
+                let noise = perlin_noise(Vec2::new(x as f32 + x_off, y as f32 + y_off) / 4.0);
                 tiles[(x, y)] = if noise > 0.6 {
                     Tile::GeothermalVent
                 } else if noise > -0.2 {
